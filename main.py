@@ -15,11 +15,19 @@ def _load_task_from_file(path: str) -> str:
 
 def _print_summary(result: Dict[str, Any]) -> None:
     print(f"Run ID: {result.get('run_id', '')}")
+    print(f"Project ID: {result.get('project_id', '')}")
+    print(f"Epic ID: {result.get('epic_id', '')}")
+    print(f"Story ID: {result.get('story_id', '')}")
+    print(f"Story name: {result.get('story_name', '')}")
     print(f"Project mode: {result.get('project_mode', '')}")
     print(f"Decision: {result.get('final_decision', '')}")
     print(f"Release status: {result.get('release_status', '')}")
     print(f"Severity: {result.get('severity', '')}")
     print(f"Run state: {result.get('run_state_path', '')}")
+    if result.get('delivery_manifest'):
+        print(f"Delivery manifest: {result.get('delivery_manifest', '')}")
+        print(f"Delivery source: {result.get('delivery_source', '')}")
+        print(f"Next story: {result.get('next_story', '')}")
     print("Execution error:")
     print(result.get("execution_error", "") or "")
 
@@ -29,6 +37,12 @@ def main() -> int:
     parser.add_argument("task", nargs="?", help="Task text")
     parser.add_argument("--task-file", help="Path to a file containing the task")
     parser.add_argument("--project-mode", default="new_project", choices=["new_project", "existing_project"])
+    parser.add_argument("--project-id", help="Stable project identifier for phased delivery")
+    parser.add_argument("--epic-id", help="Epic identifier, e.g. SHOP-EPIC-1")
+    parser.add_argument("--story-id", default="story_1", help="Story identifier, e.g. story_1 or SHOP-101")
+    parser.add_argument("--story-name", help="Human-readable story name")
+    parser.add_argument("--resume-from", help="Path to a delivered story source directory to continue from")
+    parser.add_argument("--depends-on", action='append', default=None, help="Story dependency. Repeat for multiple dependencies.")
     parser.add_argument("--entry-skill", default="dev-team-workflow", choices=["dev-team-workflow", "dev-team-agent", "dev-team-setup"])
     parser.add_argument("--json", action="store_true", help="Print full result as JSON")
     parser.add_argument("--save-result", help="Save full result JSON to a file")
@@ -47,7 +61,16 @@ def main() -> int:
         return 1
 
     try:
-        result = run_orchestrator(task, project_mode=args.project_mode)
+        result = run_orchestrator(
+            task,
+            project_mode=args.project_mode,
+            project_id=args.project_id,
+            epic_id=args.epic_id,
+            story_id=args.story_id,
+            story_name=args.story_name,
+            resume_from=args.resume_from,
+            depends_on=args.depends_on,
+        )
     except Exception as exc:
         print(f"Runtime error: {exc}", file=sys.stderr)
         return 1
@@ -63,7 +86,7 @@ def main() -> int:
             encoding="utf-8",
         )
 
-    return 0 if result.get("final_decision") == "DONE" else 2
+    return 0 if result.get("final_decision") in {"DONE", "DELIVER_STORY"} else 2
 
 
 if __name__ == "__main__":

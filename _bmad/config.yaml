@@ -16,6 +16,7 @@ devteam:
   project_mode: new_project
   output_project_dir: output_project
   state_dir: state
+  deliveries_dir: deliveries
   max_retry_loops: 3
   install_command: npm install
   build_command: npm run build

@@ -29,7 +29,12 @@ def _get_role_model_map() -> Dict[str, str]:
         'pm': os.getenv('PM_MODEL', os.getenv('GLM4_MODEL', default_model)),
         'architect': os.getenv('ARCHITECT_MODEL', default_model),
         'developer': os.getenv('DEVELOPER_MODEL', 'qwen3-coder:30b'),
+        'fe_developer': os.getenv('FE_DEVELOPER_MODEL', os.getenv('DEVELOPER_MODEL', 'qwen3-coder:30b')),
+        'be_developer': os.getenv('BE_DEVELOPER_MODEL', os.getenv('DEVELOPER_MODEL', 'qwen3-coder:30b')),
         'qa': os.getenv('QA_MODEL', 'qwen3:8b'),
+        'fe_reviewer': os.getenv('FE_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
+        'be_reviewer': os.getenv('BE_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
+        'integration_qa': os.getenv('INTEGRATION_QA_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
         'lead': os.getenv('LEAD_MODEL', 'llama3.2:3b'),
     }
 

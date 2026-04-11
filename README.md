@@ -1,11 +1,13 @@
-This project is a local-first Python delivery system organized in a BMad-style structure.
+# AI Dev Team Regen v10
 
-## What changed in
-- Removed `gemma3` from the default role mapping
-- Switched to env-driven role -> model selection via `.env`
-- Added real `.env` loading with `python-dotenv`
-- Set `qwen3-coder` as the default Developer model
-- Kept `glm4` in the default mapping for PM
+This project is a local-first Python delivery system organized in a BMad-style structure with epic / story / run delivery semantics.
+
+## What changed in v10
+- Added epic / story / run semantics
+- Added delivered story artifacts under `deliveries/<project_id>/<story_id>/`
+- Added resume support via `--project-id`, `--epic-id`, `--story-id`, and `--resume-from`
+- Successful story runs now end with `DELIVER_STORY` and emit a `story_manifest.json`
+- Story 2+ can continue from the previously delivered baseline story
 
 ## Default model mapping
 Configured in `.env`:
@@ -17,15 +19,22 @@ Configured in `.env`:
 
 ## Runtime architecture
 - `main.py` is the CLI entrypoint
-- `core/orchestrator.py` runs the PM -> Architect -> Developer -> QA -> Lead workflow
+- `core/orchestrator.py` runs epic / story delivery through PM -> Architect -> Developer -> QA -> Lead
 - `core/config.py` loads `_bmad/config.yaml` and role-model mapping from `.env`
-- `core/llm.py` resolves the model by role at runtime
+- `core/file_manager.py` supports baseline loading and story delivery copying
 - `memory/manager.py` hydrates personal and shared memory
 
 ## Useful commands
 ```bash
 cp .env.example .env
-python main.py "Build a simple React todo app with add, delete, and filter"
-python scripts/inspect_agent_sanctum.py developer
-python scripts/inspect_shared_memory.py
+python main.py --project-id shop_web --epic-id SHOP-EPIC-1 --story-id SHOP-101 --story-name "App shell and routing foundation" "Build the first story for an ordering website"
+python main.py --project-id shop_web --epic-id SHOP-EPIC-1 --story-id SHOP-102 --story-name "Catalog and product detail" "Build the next story on top of the delivered baseline"
+python main.py --project-id shop_web --epic-id SHOP-EPIC-1 --story-id SHOP-102 --resume-from deliveries/shop_web/SHOP-101/source "Continue from story SHOP-101 and add catalog pages"
 ```
+
+
+## v12 additions
+- Gate state machine for Research -> Specification -> Design -> Implementation -> Release
+- Artifact lock registry at `project_state/<project_id>/artifact_locks.json`
+- Change request groundwork at `project_state/<project_id>/change_requests/`
+- Richer story packet and story manifest with scope, business goal, acceptance criteria, and gate state

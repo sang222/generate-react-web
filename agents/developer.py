@@ -31,10 +31,10 @@ Dependency policy:
 def build_dependency_retry_hint(execution_error: str) -> str:
     err = (execution_error or "").lower()
     if (
-            "eresolve" in err
-            or "peer react" in err
-            or "react-virtualized" in err
-            or "unable to resolve dependency tree" in err
+        "eresolve" in err
+        or "peer react" in err
+        or "react-virtualized" in err
+        or "unable to resolve dependency tree" in err
     ):
         return """
 Dependency retry fix:
@@ -48,16 +48,20 @@ Dependency retry fix:
 
 
 def build_developer_prompt(
-        task: str,
-        prd: str,
-        design: str,
-        bugs: list,
-        fix_suggestion: str,
-        execution_error: str,
-        history: list,
-        planned_changes: dict | None = None,
-        agent_context: dict | None = None,
-        project_mode: str = "new_project",
+    role: str,
+    lane: str,
+    task: str,
+    prd: str,
+    design: str,
+    bugs: list,
+    fix_suggestion: str,
+    execution_error: str,
+    history: list,
+    planned_changes: dict | None = None,
+    agent_context: dict | None = None,
+    project_mode: str = "new_project",
+    ownership_map: dict | None = None,
+    story_packet: dict | None = None,
 ) -> str:
     retry_hint_parts: list[str] = []
     if execution_error or bugs:
@@ -72,13 +76,18 @@ Retry priority:
         retry_hint_parts.append(dependency_hint)
     retry_hint = "\n\n".join(part for part in retry_hint_parts if part)
 
+    lane_guidance = {
+        'frontend': "You own frontend paths such as src/, public/, web/, frontend/, package.json and index.html when needed for UI integration.",
+        'backend': "You own backend paths such as backend/, api/, db/, server/ and shared/contracts/. Avoid frontend-only files unless required for integration.",
+    }.get(lane, "Stay within your assigned ownership lane.")
+
     return f"""
-You are a Senior React Developer.
+You are a Senior {lane.capitalize()} Developer working inside a gated story delivery workflow.
 
 Mission:
-- Generate a runnable React (Vite) project iteration
-- Fix issues from previous iterations
-- Reuse your own durable lessons when helpful
+- Implement the current story safely inside your ownership lane
+- Return only the files your lane needs to create or change
+- Respect the existing baseline and do not regenerate unrelated files
 
 Relevant skill guidance:
 {developer_resources(project_mode, execution_error)}
@@ -90,6 +99,18 @@ Task:
 
 Project mode:
 {project_mode}
+
+Current lane:
+{lane}
+
+Lane guidance:
+{lane_guidance}
+
+Story packet:
+{safe_json(story_packet or {})}
+
+Ownership map:
+{safe_json(ownership_map or {})}
 
 PRD:
 {prd}
@@ -126,41 +147,22 @@ STRICT RULES:
 - Use double quotes for all JSON keys and string values
 - Escape newlines correctly inside file content strings
 - Do not use trailing commas
+- Only return files that belong to your lane or are required shared integration files
+- Do not overwrite unrelated files from another lane
+- If the project mode is existing_project, preserve the existing app and patch it incrementally
 
 Required schema:
 {SIMPLE_JSON_EXAMPLE}
 
-Minimum required files:
-- package.json
-- index.html
-- src/main.jsx
-- src/App.jsx
-- src/index.css
-
 Implementation rules:
-- Use React + Vite
-- Use functional components
-- Use createRoot in main.jsx
-- Ensure imports are valid
-- Ensure all referenced files exist
-- Keep import paths relative, exact, and buildable
-- package.json must contain valid dependencies and scripts
-- index.html must be a valid minimal Vite HTML entry
-- Generate complete usable file contents
-- Do not output placeholders or pseudo-code
-- Prefer JavaScript unless the task clearly requires TypeScript
-- Keep dependency count low
-- Prefer local component state unless shared state is clearly needed
-- Prefer verifiable, build-safe changes over broad speculative design
+- Use React + Vite when touching frontend code
+- Keep dependencies low and compatible
+- Preserve buildability
+- Keep imports exact and safe
+- Prefer minimal, verifiable changes over broad rewrites
+- Treat the delivered baseline as stable unless the current story explicitly changes it
 
 {retry_hint}
-
-Before finalizing internally, check:
-- Is the JSON valid?
-- Are all required files present?
-- Do local imports point to real files?
-- Is package.json consistent with the generated files?
-- Is index.html minimal and valid?
 
 Return ONLY JSON.
 """.strip()
@@ -168,18 +170,24 @@ Return ONLY JSON.
 
 
 def run_developer(
-        task: str,
-        prd: str,
-        design: str,
-        bugs: list,
-        fix_suggestion: str,
-        execution_error: str,
-        history: list,
-        planned_changes: dict | None = None,
-        agent_context: dict | None = None,
-        project_mode: str = "new_project",
+    task: str,
+    prd: str,
+    design: str,
+    bugs: list,
+    fix_suggestion: str,
+    execution_error: str,
+    history: list,
+    planned_changes: dict | None = None,
+    agent_context: dict | None = None,
+    project_mode: str = "new_project",
+    role: str = 'developer',
+    lane: str = 'frontend',
+    ownership_map: dict | None = None,
+    story_packet: dict | None = None,
 ) -> str:
     prompt = build_developer_prompt(
+        role=role,
+        lane=lane,
         task=task,
         prd=prd,
         design=design,
@@ -190,8 +198,10 @@ def run_developer(
         planned_changes=planned_changes,
         agent_context=agent_context,
         project_mode=project_mode,
+        ownership_map=ownership_map,
+        story_packet=story_packet,
     )
-    trace_block("DEVELOPER PROMPT", prompt)
-    response = call_role_llm("developer", prompt)
-    trace_block("DEVELOPER RESPONSE", response)
+    trace_block(f"{role.upper()} PROMPT", prompt)
+    response = call_role_llm(role, prompt)
+    trace_block(f"{role.upper()} RESPONSE", response)
     return response

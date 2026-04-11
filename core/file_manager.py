@@ -13,6 +13,10 @@ def reset_output_dir() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def ensure_output_dir() -> None:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def _safe_target_path(relative_path: str) -> Path:
     target = (OUTPUT_DIR / relative_path).resolve()
     output_root = OUTPUT_DIR.resolve()
@@ -42,6 +46,35 @@ def list_project_files() -> list[str]:
 
 def summarize_project_tree() -> str:
     files = list_project_files()
+    if not files:
+        return "(empty)"
+    return "\n".join(files)
+
+
+def copy_tree(src: Path, dest: Path) -> None:
+    src = src.resolve()
+    dest = dest.resolve()
+    if not src.exists():
+        raise FileNotFoundError(f"Source directory does not exist: {src}")
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest)
+
+
+def load_baseline_project(src: str | Path) -> None:
+    source = Path(src)
+    if not source.exists():
+        raise FileNotFoundError(f"Baseline directory does not exist: {source}")
+    if OUTPUT_DIR.exists():
+        shutil.rmtree(OUTPUT_DIR)
+    shutil.copytree(source, OUTPUT_DIR)
+
+
+def summarize_project_tree_for(root: str | Path) -> str:
+    base = Path(root)
+    if not base.exists():
+        return "(missing)"
+    files = sorted(str(path.relative_to(base)) for path in base.rglob('*') if path.is_file())
     if not files:
         return "(empty)"
     return "\n".join(files)

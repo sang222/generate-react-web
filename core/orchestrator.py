@@ -14,8 +14,30 @@ from agents.pm import run_pm
 from agents.qa import run_qa
 from core.config import load_module_config
 from core.executor import run_react_check
-from core.file_manager import reset_output_dir, summarize_project_tree, write_project
+from core.file_manager import (
+    OUTPUT_DIR,
+    copy_tree,
+    load_baseline_project,
+    reset_output_dir,
+    summarize_project_tree,
+    summarize_project_tree_for,
+    write_project,
+)
 from core.memory import save_run
+from core.ownership import detect_cross_lane_conflicts, ensure_ownership_map, lane_files, ownership_map_path
+from core.story_state import (
+    default_story_packet,
+    ensure_artifact_locks,
+    ensure_delivery_index,
+    ensure_epic_context,
+    find_baseline_from_dependencies,
+    get_story_definition,
+    load_epic_context,
+    lock_artifacts,
+    update_delivery_index,
+)
+from core.gates import fail_gate, load_gate_state, pass_gate, save_gate_state
+from core.change_request import create_change_request
 from memory.manager import AgentMemoryManager
 
 MODULE_CONFIG = load_module_config()
@@ -23,6 +45,7 @@ MAX_LOOP = int(MODULE_CONFIG.get("devteam", {}).get("max_retry_loops", 3))
 OUTPUT_PROJECT_DIR = MODULE_CONFIG.get("devteam", {}).get("output_project_dir", "output_project")
 STATE_DIR = Path(MODULE_CONFIG.get("devteam", {}).get("state_dir", "state"))
 RUN_STATE_PATH = STATE_DIR / "run_state.json"
+DELIVERIES_DIR = Path(MODULE_CONFIG.get("devteam", {}).get("deliveries_dir", "deliveries"))
 REQUIRED_FILES = {"package.json", "index.html", "src/main.jsx", "src/App.jsx", "src/index.css"}
 
 
@@ -56,31 +79,47 @@ def _normalize_files(dev_result: Dict[str, Any]) -> List[Dict[str, str]]:
     if not isinstance(raw_files, list):
         return []
     normalized: List[Dict[str, str]] = []
-    seen_paths = set()
     for item in raw_files:
         if not isinstance(item, dict):
             continue
         path = item.get("path")
         content = item.get("content")
-        if not isinstance(path, str) or not path.strip():
-            continue
-        if not isinstance(content, str):
+        if not isinstance(path, str) or not path.strip() or not isinstance(content, str):
             continue
         clean_path = path.strip().replace("\\", "/")
-        if clean_path in seen_paths:
-            continue
-        seen_paths.add(clean_path)
         normalized.append({"path": clean_path, "content": content})
     return normalized
 
 
-def _find_missing_required_files(files: List[Dict[str, str]]) -> List[str]:
-    existing_paths = {file["path"] for file in files}
-    return sorted(REQUIRED_FILES - existing_paths)
+def _dedupe_files(files: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    merged: Dict[str, str] = {}
+    for item in files:
+        merged[item["path"]] = item["content"]
+    return [{"path": k, "content": v} for k, v in merged.items()]
+
+
+def _find_missing_required_files_in_output() -> List[str]:
+    return sorted(path for path in REQUIRED_FILES if not (OUTPUT_DIR / path).exists())
 
 
 def _make_empty_qa_detail() -> Dict[str, List[str]]:
-    return {"structural_bugs": [], "functional_bugs": [], "prd_gaps": [], "ui_gaps": []}
+    return {
+        "structural_bugs": [],
+        "functional_bugs": [],
+        "prd_gaps": [],
+        "ui_gaps": [],
+        "regression_bugs": [],
+    }
+
+
+def _merge_qa_details(*details: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    result = _make_empty_qa_detail()
+    for detail in details:
+        for key in result.keys():
+            for item in detail.get(key, []) or []:
+                if item not in result[key]:
+                    result[key].append(item)
+    return result
 
 
 def classify_release_status(context: Dict[str, Any]) -> Tuple[str, str, str]:
@@ -89,19 +128,23 @@ def classify_release_status(context: Dict[str, Any]) -> Tuple[str, str, str]:
     structural_bugs = qa_detail.get("structural_bugs") or []
     functional_bugs = qa_detail.get("functional_bugs") or []
     prd_gaps = qa_detail.get("prd_gaps") or []
+    regression_bugs = qa_detail.get("regression_bugs") or []
     ui_gaps = qa_detail.get("ui_gaps") or []
 
-    if execution_error or structural_bugs or functional_bugs or prd_gaps:
-        return ("RETRY", "BLOCKER", "Build failed, core logic is broken, or PRD coverage is incomplete.")
+    if execution_error or structural_bugs or functional_bugs or prd_gaps or regression_bugs:
+        return ("RETRY", "BLOCKER", "Build failed, ownership/integration failed, or story acceptance criteria are incomplete.")
     if ui_gaps:
-        return ("DONE", "MINOR", "Build and core requirements passed, with only minor UI gaps remaining.")
-    return ("DONE", "NONE", "Build passed and no important QA gaps remain.")
+        return ("DONE", "MINOR", "Build and current story requirements passed, with only minor UI gaps remaining.")
+    return ("DONE", "NONE", "Build passed and no important QA gaps remain for the current story.")
 
 
 def _append_history(context: Dict[str, Any]) -> None:
     context["history"].append(
         {
             "loop": context.get("loop_count", 0),
+            "epic_id": context.get("epic_id", ""),
+            "story_id": context.get("story_id", "story_1"),
+            "story_name": context.get("story_name", context.get("story_id", "story_1")),
             "release_status": context.get("release_status", ""),
             "severity": context.get("severity", ""),
             "execution_error": context.get("execution_error", ""),
@@ -111,23 +154,34 @@ def _append_history(context: Dict[str, Any]) -> None:
     )
 
 
-def _build_planned_changes(context: Dict[str, Any]) -> Dict[str, Any]:
-    planned_updates = []
-    if context.get("prd"):
-        planned_updates.append({"kind": "requirements", "summary": "Implement PRD scope safely."})
-    if context.get("design"):
-        planned_updates.append({"kind": "architecture", "summary": "Follow the concrete file tree and component plan."})
-    if context.get("execution_error"):
-        planned_updates.append({"kind": "repair", "summary": f"Fix execution error: {context.get('execution_error', '')[:240]}"})
-    for bug in (context.get("bugs") or [])[:5]:
-        planned_updates.append({"kind": "bug_fix", "summary": str(bug)[:240]})
-    return {"project_mode": context.get("project_mode", "new_project"), "goal": context.get("task", ""), "planned_updates": planned_updates}
+def _build_planned_changes(context: Dict[str, Any], lane: str = "integration") -> Dict[str, Any]:
+    return {
+        "project_mode": context.get("project_mode", "new_project"),
+        "goal": context.get("task", ""),
+        "project_id": context.get("project_id", ""),
+        "epic_id": context.get("epic_id", ""),
+        "story_id": context.get("story_id", "story_1"),
+        "story_name": context.get("story_name", context.get("story_id", "story_1")),
+        "resume_from": context.get("baseline_path", ""),
+        "lane": lane,
+        "parallel_mode": True,
+        "gate_state": context.get("gate_state", {}),
+        "change_requests": context.get("change_requests", []),
+    }
 
 
 def _build_workflow_context(context: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "task": context.get("task", ""),
         "project_mode": context.get("project_mode", "new_project"),
+        "project_id": context.get("project_id", ""),
+        "epic_id": context.get("epic_id", ""),
+        "story_id": context.get("story_id", "story_1"),
+        "story_name": context.get("story_name", context.get("story_id", "story_1")),
+        "delivery_mode": context.get("delivery_mode", "story_based"),
+        "baseline_path": context.get("baseline_path", ""),
+        "baseline_tree": context.get("baseline_tree", ""),
+        "story_packet": context.get("story_packet", {}),
         "prd": context.get("prd", ""),
         "design": context.get("design", ""),
         "bugs": context.get("bugs", []),
@@ -146,8 +200,14 @@ def _write_run_state(context: Dict[str, Any]) -> str:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     state = {
         "run_id": context.get("run_id", ""),
+        "project_id": context.get("project_id", ""),
+        "epic_id": context.get("epic_id", ""),
+        "story_id": context.get("story_id", "story_1"),
+        "story_name": context.get("story_name", context.get("story_id", "story_1")),
+        "delivery_mode": context.get("delivery_mode", "story_based"),
         "task": context.get("task", ""),
         "project_mode": context.get("project_mode", "new_project"),
+        "baseline_path": context.get("baseline_path", ""),
         "loop_count": context.get("loop_count", 0),
         "operation": context.get("operation", "generate"),
         "retry_reason": context.get("retry_reason", ""),
@@ -155,9 +215,12 @@ def _write_run_state(context: Dict[str, Any]) -> str:
         "severity": context.get("severity", ""),
         "execution_error": context.get("execution_error", ""),
         "qa_detail": context.get("qa_detail", {}),
-        "planned_changes": context.get("planned_changes", {}),
+        "story_packet": context.get("story_packet", {}),
         "history_tail": context.get("history", [])[-3:],
         "output_project_dir": OUTPUT_PROJECT_DIR,
+        "gate_state": context.get("gate_state", {}),
+        "artifact_locks_path": context.get("artifact_locks_path", ""),
+        "change_requests": context.get("change_requests", []),
     }
     RUN_STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     return str(RUN_STATE_PATH)
@@ -182,18 +245,163 @@ def _run_lead_and_store_summary(context: Dict[str, Any], memory_manager: AgentMe
     context["lead_summary"] = _extract_json_object(lead_raw)
 
 
-def run_orchestrator(task: str, project_mode: str = "new_project") -> Dict[str, Any]:
+def _prepare_baseline(context: Dict[str, Any]) -> None:
+    baseline_path = context.get("baseline_path", "")
+    if baseline_path:
+        log_step(f"Loading baseline from {baseline_path}")
+        load_baseline_project(baseline_path)
+        context["baseline_tree"] = summarize_project_tree_for(baseline_path)
+    else:
+        reset_output_dir()
+        context["baseline_tree"] = ""
+
+
+def _create_story_delivery(context: Dict[str, Any]) -> Dict[str, Any]:
+    project_id = context.get("project_id", "")
+    epic_id = context.get("epic_id", "")
+    story_id = context.get("story_id", "story_1")
+    story_name = context.get("story_name", story_id)
+    delivery_root = DELIVERIES_DIR / project_id / story_id
+    source_dir = delivery_root / "source"
+    manifest_path = delivery_root / "story_manifest.json"
+    review_path = delivery_root / "review_report.json"
+    integration_path = delivery_root / "integration_report.json"
+    delivery_root.mkdir(parents=True, exist_ok=True)
+    copy_tree(OUTPUT_DIR, source_dir)
+    manifest = {
+        "project_id": project_id,
+        "epic_id": epic_id,
+        "story_id": story_id,
+        "story_name": story_name,
+        "status": "delivered",
+        "release_decision": "DELIVER_STORY",
+        "delivered_at": datetime.now().isoformat(timespec="seconds"),
+        "baseline_from_story": (context.get("story_packet", {}).get("baseline_story_id") or ""),
+        "depends_on": context.get("depends_on", []),
+        "business_goal": context.get("story_packet", {}).get("business_goal", context.get("task", "")),
+        "acceptance_criteria": context.get("story_acceptance_criteria", []),
+        "acceptance_result": {
+            "passed": context.get("story_acceptance_criteria", []),
+            "failed": [],
+        },
+        "in_scope": context.get("story_packet", {}).get("in_scope", []),
+        "out_of_scope": context.get("story_packet", {}).get("out_of_scope", []),
+        "summary": context.get("lead_summary", {}).get("reason") or context.get("task", ""),
+        "source_dir": str(source_dir),
+        "project_tree": summarize_project_tree_for(source_dir),
+        "ownership_map_path": context.get("ownership_map_path", ""),
+        "parallel_mode": True,
+        "gate_state": context.get("gate_state", {}),
+        "change_requests": context.get("change_requests", []),
+        "fe_changed_files": sorted(item["path"] for item in context.get("fe_files", [])),
+        "be_changed_files": sorted(item["path"] for item in context.get("be_files", [])),
+        "next_story": context.get("next_story", ""),
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    review_path.write_text(json.dumps({
+        "fe_review": context.get("fe_review", {}),
+        "be_review": context.get("be_review", {}),
+        "integration_review": context.get("integration_review", {}),
+    }, ensure_ascii=False, indent=2), encoding='utf-8')
+    integration_path.write_text(json.dumps({
+        "integration_conflicts": context.get("integration_conflicts", []),
+        "integration_notes": context.get("integration_notes", []),
+    }, ensure_ascii=False, indent=2), encoding='utf-8')
+    lock_artifacts(project_id, story_id, 'RELEASE_GATE', [str(manifest_path), str(source_dir), str(review_path), str(integration_path)])
+    update_delivery_index(project_id, epic_id, story_id, story_name, str(manifest_path))
+    return {"delivery_root": str(delivery_root), "delivery_source": str(source_dir), "delivery_manifest": str(manifest_path)}
+
+
+def _run_lane_developer(context: Dict[str, Any], memory_manager: AgentMemoryManager, lane: str, role: str, ownership_map: Dict[str, Any]) -> tuple[list[dict], dict]:
+    dev_ctx = memory_manager.load_context(role, context["task"], _build_workflow_context(context))
+    log_step(f"Loop {context['loop_count']}/{MAX_LOOP} - Running {role}")
+    task = context["task"]
+    if context.get("baseline_tree"):
+        task += f"\n\nExisting baseline tree:\n{context['baseline_tree']}"
+    raw = run_developer(
+        task=task,
+        prd=context["prd"],
+        design=context["design"],
+        bugs=context["bugs"],
+        fix_suggestion=context["fix_suggestion"],
+        execution_error=context["execution_error"],
+        history=context["history"],
+        planned_changes=_build_planned_changes(context, lane),
+        agent_context=dev_ctx,
+        project_mode=context["project_mode"],
+        role=role,
+        lane=lane,
+        ownership_map=ownership_map,
+        story_packet=context["story_packet"],
+    )
+    result = _extract_json_object(raw)
+    return _normalize_files(result), result
+
+
+def _run_lane_review(context: Dict[str, Any], memory_manager: AgentMemoryManager, lane: str, role: str, code: dict) -> dict:
+    qa_ctx = memory_manager.load_context(role, context["task"], _build_workflow_context(context))
+    raw = run_qa(
+        task=context["task"],
+        prd=context["prd"],
+        design=context["design"],
+        code=code,
+        extra_bugs=[],
+        agent_context=qa_ctx,
+        role=role,
+        lane=lane,
+        story_packet=context["story_packet"],
+    )
+    res = _extract_json_object(raw)
+    return {
+        "structural_bugs": res.get("structural_bugs", []) or [],
+        "functional_bugs": res.get("functional_bugs", []) or [],
+        "prd_gaps": res.get("prd_gaps", []) or [],
+        "ui_gaps": res.get("ui_gaps", []) or [],
+        "regression_bugs": res.get("regression_bugs", []) or [],
+        "fix_suggestion": res.get("fix_suggestion", "") or "",
+    }
+
+
+def run_orchestrator(task: str, project_mode: str = "new_project", project_id: str | None = None, epic_id: str | None = None, story_id: str | None = None, story_name: str | None = None, resume_from: str | None = None, depends_on: List[str] | None = None) -> Dict[str, Any]:
     memory_manager = AgentMemoryManager()
     memory_manager.ensure_bootstrap()
 
+    story_id = (story_id or "story_1").strip() or "story_1"
+    story_name = (story_name or story_id).strip() or story_id
+    project_id = (project_id or f"project_{uuid.uuid4().hex[:8]}").strip()
+    epic_id = (epic_id or f"{project_id}-epic").strip()
+
+    epic_context = ensure_epic_context(project_id, epic_id, story_id, story_name, depends_on or [])
+    story_def = get_story_definition(project_id, story_id)
+    ensure_delivery_index(project_id, epic_id, epic_context)
+    artifact_locks = ensure_artifact_locks(project_id)
+    ownership_map = ensure_ownership_map(project_id)
+    ownership_path = str(ownership_map_path(project_id))
+    inferred_baseline = resume_from or find_baseline_from_dependencies(project_id, story_id, DELIVERIES_DIR)
+    effective_project_mode = "existing_project" if inferred_baseline else project_mode
+
+    story_packet = default_story_packet(project_id, epic_id, story_id, story_name, inferred_baseline or "", ownership_path, task)
+    story_packet["depends_on"] = depends_on or story_packet.get('depends_on', [])
+    story_packet['acceptance_criteria'] = story_def.get('acceptance_criteria', story_packet.get('acceptance_criteria', []))
+    story_packet['in_scope'] = story_def.get('in_scope', story_packet.get('in_scope', []))
+    story_packet['out_of_scope'] = story_def.get('out_of_scope', story_packet.get('out_of_scope', []))
+    if story_packet.get('depends_on'):
+        story_packet["baseline_story_id"] = story_packet['depends_on'][-1]
     context: Dict[str, Any] = {
         "run_id": str(uuid.uuid4()),
+        "project_id": project_id,
+        "epic_id": epic_id,
+        "story_id": story_id,
+        "story_name": story_name,
+        "delivery_mode": "story_based",
+        "baseline_path": inferred_baseline or "",
+        "baseline_tree": summarize_project_tree_for(inferred_baseline) if inferred_baseline else "",
+        "story_goal": f"Deliver story {story_id} as a runnable baseline for project {project_id}.",
         "task": task,
-        "project_mode": project_mode,
+        "project_mode": effective_project_mode,
         "prd": "",
         "design": "",
         "code": {},
-        "raw_code": "",
         "bugs": [],
         "fix_suggestion": "",
         "execution_error": "",
@@ -208,136 +416,148 @@ def run_orchestrator(task: str, project_mode: str = "new_project") -> Dict[str, 
         "retry_reason": "initial_generation",
         "operation": "plan",
         "run_state_path": str(RUN_STATE_PATH),
-        "first_breath": {},
+        "delivery_manifest": "",
+        "delivery_source": "",
+        "delivery_root": "",
+        "resume_from": inferred_baseline or "",
+        "depends_on": depends_on or [],
+        "story_acceptance_criteria": story_packet.get('acceptance_criteria', []),
+        "ownership_map_path": ownership_path,
+        "artifact_locks_path": str(Path('project_state') / project_id / 'artifact_locks.json'),
+        "change_requests": [],
+        "story_packet": story_packet,
+        "fe_files": [],
+        "be_files": [],
+        "integration_conflicts": [],
+        "integration_notes": [],
+        "next_story": "",
     }
 
     context["first_breath"] = memory_manager.ensure_first_breath(task, _build_workflow_context(context))
+    gate_state = load_gate_state(project_id, epic_id, story_id)
+    context['gate_state'] = gate_state
     _write_run_state(context)
 
-    log_step("Hydrating PM memory")
     pm_ctx = memory_manager.load_context("pm", task, _build_workflow_context(context))
-    log_step("Running PM")
-    context["prd"] = run_pm(task=context["task"], agent_context=pm_ctx)
+    context["prd"] = run_pm(task=f"{task}\n\nStory packet:\n{json.dumps(story_packet, ensure_ascii=False, indent=2)}", agent_context=pm_ctx)
+    context['gate_state'] = pass_gate(context['gate_state'], 'GATE_1_RESEARCH', 'Research/brief context captured.', ['docs/brief.md'])
+    context['gate_state'] = pass_gate(context['gate_state'], 'GATE_2_SPECIFICATION', 'Specification captured for current story.', ['docs/prd.md', 'project_state/%s/epic_context.json' % project_id])
+    save_gate_state(context['gate_state'])
 
-    log_step("Hydrating Architect memory")
     architect_ctx = memory_manager.load_context("architect", task, _build_workflow_context(context))
-    log_step("Running Architect")
-    context["design"] = run_architect(task=context["task"], prd=context["prd"], agent_context=architect_ctx)
+    context["design"] = run_architect(
+        task=f"{task}\n\nCurrent story packet:\n{json.dumps(story_packet, ensure_ascii=False, indent=2)}\n\nOwnership map:\n{json.dumps(ownership_map, ensure_ascii=False, indent=2)}",
+        prd=context["prd"],
+        agent_context=architect_ctx,
+    )
+    if context["baseline_tree"]:
+        context["design"] += f"\n\nBaseline project tree:\n{context['baseline_tree']}"
+    context['gate_state'] = pass_gate(context['gate_state'], 'GATE_3_DESIGN', 'Architecture and ownership map prepared.', ['docs/architecture.md', context['ownership_map_path']])
+    save_gate_state(context['gate_state'])
 
     for loop in range(1, MAX_LOOP + 1):
         context["loop_count"] = loop
         context["execution_error"] = ""
         context["qa_detail"] = _make_empty_qa_detail()
         context["operation"] = "generate"
-        context["planned_changes"] = _build_planned_changes(context)
         _write_run_state(context)
+        _prepare_baseline(context)
 
-        log_step(f"Loop {loop}/{MAX_LOOP} - Hydrating Developer memory")
-        developer_ctx = memory_manager.load_context("developer", task, _build_workflow_context(context))
-        log_step(f"Loop {loop}/{MAX_LOOP} - Running Developer")
-        dev_raw = run_developer(
-            task=context["task"],
-            prd=context["prd"],
-            design=context["design"],
-            bugs=context["bugs"],
-            fix_suggestion=context["fix_suggestion"],
-            execution_error=context["execution_error"],
-            history=context["history"],
-            planned_changes=context["planned_changes"],
-            agent_context=developer_ctx,
-            project_mode=context["project_mode"],
-        )
-        context["raw_code"] = dev_raw
+        be_files, _ = _run_lane_developer(context, memory_manager, "backend", "be_developer", ownership_map)
+        fe_files, _ = _run_lane_developer(context, memory_manager, "frontend", "fe_developer", ownership_map)
+        context["fe_files"] = fe_files
+        context["be_files"] = be_files
 
-        log_step(f"Loop {loop}/{MAX_LOOP} - Parsing developer output")
-        dev_result = _extract_json_object(dev_raw)
-        files = _normalize_files(dev_result)
-
-        if not files:
-            context["execution_error"] = "Developer returned empty or invalid project JSON"
-            context["retry_reason"] = "invalid_json"
+        if not fe_files and not be_files:
+            context["execution_error"] = "Both FE and BE developers returned empty or invalid JSON"
+            context["retry_reason"] = "invalid_json_parallel"
             context["qa_detail"] = {
-                "structural_bugs": ["Developer returned empty or invalid project JSON"],
+                "structural_bugs": [context["execution_error"]],
                 "functional_bugs": [],
                 "prd_gaps": [],
                 "ui_gaps": [],
+                "regression_bugs": [],
             }
-            context["fix_suggestion"] = "Return valid JSON with a non-empty files array. Keep the output schema minimal."
-            context["code"] = {}
+            context["fix_suggestion"] = "At least one implementation lane must return valid JSON with files."
             context["bugs"] = context["qa_detail"]["structural_bugs"]
-            context["release_status"], context["severity"], rule_reason = classify_release_status(context)
-            _write_run_state(context)
-            if dev_raw:
-                print("\n[debug] Invalid developer raw output:\n", dev_raw[:4000], flush=True)
-            _run_lead_and_store_summary(context, memory_manager, rule_reason)
+            context["release_status"], context["severity"], reason = classify_release_status(context)
+            _run_lead_and_store_summary(context, memory_manager, reason)
             _append_history(context)
             continue
 
-        missing_required_files = _find_missing_required_files(files)
+        conflicts = detect_cross_lane_conflicts(fe_files, be_files, ownership_map)
+        context["integration_conflicts"] = conflicts
+        if conflicts:
+            context["execution_error"] = "[integration conflict]\n" + "\n".join(conflicts)
+            context["retry_reason"] = "ownership_conflict"
+            cr_path = create_change_request(project_id, story_id, context['ownership_map_path'], 'Cross-lane ownership conflict detected during integration.', conflicts)
+            context.setdefault('change_requests', []).append(cr_path)
+
+        merged_files = _dedupe_files(be_files + fe_files)
+        context["code"] = {"files": merged_files}
+        write_project(merged_files)
+
+        missing_required_files = _find_missing_required_files_in_output()
         if missing_required_files:
-            context["execution_error"] = "Missing required files: " + ", ".join(missing_required_files)
+            context["execution_error"] = "Missing required files after applying this story: " + ", ".join(missing_required_files)
             context["retry_reason"] = "missing_required_files"
             context["qa_detail"] = {
                 "structural_bugs": [f"Missing required file: {path}" for path in missing_required_files],
                 "functional_bugs": [],
                 "prd_gaps": [],
                 "ui_gaps": [],
+                "regression_bugs": [],
             }
-            context["fix_suggestion"] = "Generate the minimum required file set before adding extra features."
-            context["code"] = {"files": files}
+            context["fix_suggestion"] = "Generate or preserve the minimum required file set before adding extra features."
             context["bugs"] = context["qa_detail"]["structural_bugs"]
-            context["release_status"], context["severity"], rule_reason = classify_release_status(context)
-            _write_run_state(context)
-            _run_lead_and_store_summary(context, memory_manager, rule_reason)
+            context["release_status"], context["severity"], reason = classify_release_status(context)
+            _run_lead_and_store_summary(context, memory_manager, reason)
             _append_history(context)
             continue
 
-        context["code"] = {"files": files}
+        fe_review = _run_lane_review(context, memory_manager, "frontend", "fe_reviewer", {"files": lane_files(merged_files, 'frontend', ownership_map)})
+        be_review = _run_lane_review(context, memory_manager, "backend", "be_reviewer", {"files": lane_files(merged_files, 'backend', ownership_map)})
+        integration_extra = [{"issue": c} for c in conflicts]
+        integration_review = _run_lane_review(context, memory_manager, "integration", "integration_qa", context["code"])
+        context["fe_review"] = fe_review
+        context["be_review"] = be_review
+        context["integration_review"] = integration_review
+        context["qa_detail"] = _merge_qa_details(fe_review, be_review, integration_review)
+        if conflicts:
+            for c in conflicts:
+                if c not in context["qa_detail"]["structural_bugs"]:
+                    context["qa_detail"]["structural_bugs"].append(c)
+        context["fix_suggestion"] = " ".join(filter(None, [fe_review.get("fix_suggestion", ""), be_review.get("fix_suggestion", ""), integration_review.get("fix_suggestion", "")])).strip()
+        context["bugs"] = [*context["qa_detail"]["structural_bugs"], *context["qa_detail"]["functional_bugs"], *context["qa_detail"]["prd_gaps"], *context["qa_detail"]["regression_bugs"]]
 
-        log_step(f"Loop {loop}/{MAX_LOOP} - Writing project files")
-        reset_output_dir()
-        write_project(files)
-
-        context["operation"] = "qa"
-        _write_run_state(context)
-        qa_ctx = memory_manager.load_context("qa", task, _build_workflow_context(context))
-        log_step(f"Loop {loop}/{MAX_LOOP} - Running QA")
-        qa_raw = run_qa(task=context["task"], prd=context["prd"], design=context["design"], code=context["code"], extra_bugs=[], agent_context=qa_ctx)
-        qa_result = _extract_json_object(qa_raw)
-        context["qa_detail"] = {
-            "structural_bugs": qa_result.get("structural_bugs", []) or [],
-            "functional_bugs": qa_result.get("functional_bugs", []) or [],
-            "prd_gaps": qa_result.get("prd_gaps", []) or [],
-            "ui_gaps": qa_result.get("ui_gaps", []) or [],
-        }
-        context["fix_suggestion"] = qa_result.get("fix_suggestion", "") or ""
-        context["bugs"] = [
-            *context["qa_detail"].get("structural_bugs", []),
-            *context["qa_detail"].get("functional_bugs", []),
-            *context["qa_detail"].get("prd_gaps", []),
-        ]
-
-        log_step(f"Loop {loop}/{MAX_LOOP} - Running build validation")
         success, error_message = run_react_check()
-        context["execution_error"] = "" if success else (error_message or "")
-        context["retry_reason"] = "" if success else "build_failure"
-        context["release_status"], context["severity"], rule_reason = classify_release_status(context)
+        if context["execution_error"]:
+            success = False
+        if not success and not context["execution_error"]:
+            context["execution_error"] = error_message or "build failed"
+        context["retry_reason"] = "" if success else (context.get("retry_reason") or "build_failure")
+        context["release_status"], context["severity"], reason = classify_release_status(context)
         context["operation"] = "release"
         _write_run_state(context)
-
-        if not success and error_message:
-            log_step(f"Loop {loop}/{MAX_LOOP} - Build error:\n{error_message[:2000]}")
-
-        _run_lead_and_store_summary(context, memory_manager, rule_reason)
+        _run_lead_and_store_summary(context, memory_manager, reason)
         _append_history(context)
-
         if context["release_status"] == "DONE":
-            log_step(f"Loop {loop}/{MAX_LOOP} - DONE, stopping retry loop")
+            context['gate_state'] = pass_gate(context['gate_state'], 'GATE_4_IMPLEMENTATION', 'Implementation, reviews, and integration checks passed.', ['output_project'])
+            context['gate_state'] = pass_gate(context['gate_state'], 'RELEASE_GATE', 'Release checklist approved for current story.', ['output_project'])
+            save_gate_state(context['gate_state'])
             break
-        log_step(f"Loop {loop}/{MAX_LOOP} - RETRY, continuing to next loop")
+        else:
+            context['gate_state'] = fail_gate(context['gate_state'], 'GATE_4_IMPLEMENTATION', context.get('execution_error', '') or 'Implementation gate failed.')
+            save_gate_state(context['gate_state'])
 
-    context["final_decision"] = context["release_status"]
     context["project_tree"] = summarize_project_tree()
+    if context["release_status"] == "DONE":
+        delivery = _create_story_delivery(context)
+        context.update(delivery)
+        context["next_story"] = context.get("lead_summary", {}).get("improvement", "")
+        context["final_decision"] = "DELIVER_STORY"
+    else:
+        context["final_decision"] = context["release_status"]
     _write_run_state(context)
     save_run(context)
     memory_manager.remember_run(context)

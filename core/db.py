@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -48,6 +49,10 @@ def _ensure_indexes(collection: Collection) -> None:
     collection.create_index("final_decision")
     collection.create_index("release_status")
     collection.create_index("severity")
+    collection.create_index("project_id")
+    collection.create_index("epic_id")
+    collection.create_index("story_id")
+    collection.create_index([("project_id", 1), ("story_id", 1), ("created_at", -1)])
 
 
 def _ensure_agent_profile_indexes(collection: Collection) -> None:

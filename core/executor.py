@@ -95,7 +95,7 @@ def _validate_project_files(project_dir: Path) -> Tuple[bool, str]:
         project_dir / "index.html",
         project_dir / "src" / "main.jsx",
         project_dir / "src" / "App.jsx",
-        ]
+    ]
     missing = [str(p.relative_to(project_dir)) for p in required_files if not p.exists()]
     if missing:
         return False, f"Missing required files before execution: {', '.join(missing)}"
