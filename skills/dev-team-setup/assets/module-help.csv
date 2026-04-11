@@ -1,0 +1,4 @@
+name,description,when_to_use,outputs,output_location,before,after
+setup-module,"Registers module capabilities and configuration surface.",module installation or reconfiguration,module registration,skills/dev-team-setup,,dev-team-agent
+agent-route,"Memory-backed conversational front door for repeated delivery conversations.",ongoing collaboration and preference-aware routing,delivery routing decision,skills/dev-team-agent,setup-module,dev-team-workflow
+workflow-deliver,"Complex workflow that produces PRD, implementation plan, code, QA, and release evidence.",artifact-producing software delivery tasks,validated delivery artifact,skills/dev-team-workflow,agent-route,

@@ -1,0 +1,4 @@
+user:
+  communication_language: vi
+  preferred_summary_style: concise
+  default_execution_mode: guided

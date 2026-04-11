@@ -1,0 +1,31 @@
+module:
+  name: ai-dev-team
+  code: dt
+  version: 0.6.0
+  description: Local-first AI delivery module with a memory agent front door, shared module memory, and a complex workflow engine.
+  architecture: hybrid
+  default_entry_skill: dev-team-agent
+  default_mode: guided
+
+skills:
+  setup: skills/dev-team-setup/SKILL.md
+  agent: skills/dev-team-agent/SKILL.md
+  workflow: skills/dev-team-workflow/SKILL.md
+
+devteam:
+  project_mode: new_project
+  output_project_dir: output_project
+  state_dir: state
+  max_retry_loops: 3
+  install_command: npm install
+  build_command: npm run build
+  frontend_stack: react-vite
+  qa_enabled: true
+  build_validation_enabled: true
+  generate_distillate: true
+
+memory:
+  sanctum_root: _bmad/memory
+  session_logs_enabled: true
+  curated_memory_enabled: true
+  shared_memory_enabled: true

@@ -1,0 +1,21 @@
+name: ai-dev-team
+version: 0.5.0
+kind: multi-skill-module
+description: Local-first AI delivery module with a memory agent front door and a complex workflow engine.
+contains:
+  - skill: dev-team-setup
+    type: utility
+  - skill: dev-team-agent
+    type: memory-agent
+  - skill: dev-team-workflow
+    type: complex-workflow
+shared_config:
+  - _bmad/config.yaml
+  - _bmad/config.user.yaml
+memory_roots:
+  - _bmad/memory/dev-team-agent
+  - _bmad/memory/pm
+  - _bmad/memory/architect
+  - _bmad/memory/developer
+  - _bmad/memory/qa
+  - _bmad/memory/lead

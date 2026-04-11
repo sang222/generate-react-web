@@ -1,0 +1,10 @@
+{
+  "project_mode": "new_project",
+  "goal": "Build a validated local React + Vite artifact",
+  "planned_updates": [
+    {
+      "path": "src/App.tsx",
+      "reason": "Primary UI entry point"
+    }
+  ]
+}
