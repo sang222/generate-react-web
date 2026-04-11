@@ -134,7 +134,6 @@ Return ONLY JSON.
 """.strip()
 
 
-
 def run_developer(
     task: str,
     prd: str,
