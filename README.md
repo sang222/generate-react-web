@@ -1,8 +1,6 @@
-# AI Dev Team Regen v7
-
 This project is a local-first Python delivery system organized in a BMad-style structure.
 
-## What changed in v7
+## What changed in
 - Removed `gemma3` from the default role mapping
 - Switched to env-driven role -> model selection via `.env`
 - Added real `.env` loading with `python-dotenv`

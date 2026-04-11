@@ -86,6 +86,7 @@ def developer_resources(project_mode: str, execution_error: str) -> str:
     resources = [
         load_skill_resource("skill_overview.md"),
         load_skill_resource("developer_output_contract.md"),
+        load_skill_resource("react_dependency_policy.md"),
         load_skill_resource("new_project_rules.md" if project_mode == "new_project" else "existing_project_rules.md"),
     ]
     if execution_error:

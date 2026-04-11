@@ -44,3 +44,4 @@ ehthumbs.db
 *.tmp
 *.swp
 *~
+/output_project/

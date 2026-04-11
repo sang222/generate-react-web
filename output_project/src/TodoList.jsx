@@ -1,13 +1,13 @@
 import React from 'react';
+import TodoItem from './TodoItem.jsx';
 
-const TodoList = ({ tasks, deleteTask, toggleCompletion }) => {
+const TodoList = ({ tasks, onDelete, onComplete }) => {
   return (
     <ul>
-      {tasks.map((task, index) => (
-        <li key={index} className={task.completed ? 'completed' : ''}>
-          <input type="checkbox" checked={task.completed} onChange={() => toggleCompletion(index)} />
-          {task.text}
-          <button onClick={() => deleteTask(index)}>Delete</button>
+      {tasks.map(task => (
+        <li key={task.id} onClick={() => onComplete(task.id)} style={{ textDecoration: task.completed ? 'line-through' : 'none', cursor: 'pointer' }}>
+          {task.description}
+          <button onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}>Delete</button>
         </li>
       ))}
     </ul>

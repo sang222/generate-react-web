@@ -1,13 +1,45 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 OUTPUT_DIR = "output_project"
 NPM_INSTALL_TIMEOUT = 180
 NPM_BUILD_TIMEOUT = 180
+
+
+DISALLOWED_PACKAGES = {
+    "react-virtualized": "Outdated peer dependency; incompatible with React 18+.",
+}
+
+
+def validate_package_json_dependencies(project_dir: Path) -> Optional[str]:
+    package_json_path = project_dir / "package.json"
+    if not package_json_path.exists():
+        return None
+
+    try:
+        data = json.loads(package_json_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return f"[package preflight failed]\nCould not parse package.json: {exc}"
+
+    dependencies = data.get("dependencies", {}) or {}
+    dev_dependencies = data.get("devDependencies", {}) or {}
+    all_packages = {**dependencies, **dev_dependencies}
+
+    for pkg, reason in DISALLOWED_PACKAGES.items():
+        if pkg in all_packages:
+            version = all_packages.get(pkg, "")
+            return (
+                "[package preflight failed]\n"
+                f"Disallowed dependency detected: {pkg}@{version}\n"
+                f"Reason: {reason}"
+            )
+
+    return None
 
 
 def _run_command(command: list[str], cwd: Path, timeout: int) -> Tuple[bool, str]:
@@ -63,7 +95,7 @@ def _validate_project_files(project_dir: Path) -> Tuple[bool, str]:
         project_dir / "index.html",
         project_dir / "src" / "main.jsx",
         project_dir / "src" / "App.jsx",
-    ]
+        ]
     missing = [str(p.relative_to(project_dir)) for p in required_files if not p.exists()]
     if missing:
         return False, f"Missing required files before execution: {', '.join(missing)}"
@@ -83,6 +115,10 @@ def run_react_check(output_dir: str = OUTPUT_DIR) -> Tuple[bool, str]:
         return False, validation_error
     if not _has_npm():
         return False, "npm not found in PATH. Please install Node.js/npm first."
+
+    package_error = validate_package_json_dependencies(project_dir)
+    if package_error:
+        return False, package_error
 
     install_ok, install_output = _run_command(
         ["npm", "install"],

@@ -16,26 +16,61 @@ SIMPLE_JSON_EXAMPLE = """{
 }"""
 
 
+DEPENDENCY_POLICY = """
+Dependency policy:
+- Use the minimum necessary dependencies only.
+- Do not add optional UI/performance libraries unless explicitly required by the task.
+- Do not use deprecated or React-incompatible libraries.
+- Do not use react-virtualized.
+- If virtualization is explicitly required, prefer react-window.
+- For simple apps like todo apps, do not add any virtualization library.
+- Keep the project compatible with React 18+.
+"""
+
+
+def build_dependency_retry_hint(execution_error: str) -> str:
+    err = (execution_error or "").lower()
+    if (
+            "eresolve" in err
+            or "peer react" in err
+            or "react-virtualized" in err
+            or "unable to resolve dependency tree" in err
+    ):
+        return """
+Dependency retry fix:
+- The previous attempt failed because package.json included an incompatible dependency for React 18.
+- Remove react-virtualized completely.
+- Do not use any virtualization library unless explicitly required.
+- Keep dependencies minimal and React 18 compatible.
+- Regenerate a minimal stable project with only essential libraries.
+""".strip()
+    return ""
+
+
 def build_developer_prompt(
-    task: str,
-    prd: str,
-    design: str,
-    bugs: list,
-    fix_suggestion: str,
-    execution_error: str,
-    history: list,
-    planned_changes: dict | None = None,
-    agent_context: dict | None = None,
-    project_mode: str = "new_project",
+        task: str,
+        prd: str,
+        design: str,
+        bugs: list,
+        fix_suggestion: str,
+        execution_error: str,
+        history: list,
+        planned_changes: dict | None = None,
+        agent_context: dict | None = None,
+        project_mode: str = "new_project",
 ) -> str:
-    retry_hint = ""
+    retry_hint_parts: list[str] = []
     if execution_error or bugs:
-        retry_hint = """
+        retry_hint_parts.append("""
 Retry priority:
 - First fix the concrete execution_error and blocker bugs.
 - Keep the solution smaller and safer than the previous attempt unless the task clearly demands more complexity.
 - Prefer fewer files with cleaner imports over many files with risky coupling.
-""".strip()
+""".strip())
+    dependency_hint = build_dependency_retry_hint(execution_error)
+    if dependency_hint:
+        retry_hint_parts.append(dependency_hint)
+    retry_hint = "\n\n".join(part for part in retry_hint_parts if part)
 
     return f"""
 You are a Senior React Developer.
@@ -47,6 +82,8 @@ Mission:
 
 Relevant skill guidance:
 {developer_resources(project_mode, execution_error)}
+
+{DEPENDENCY_POLICY}
 
 Task:
 {task}
@@ -115,11 +152,6 @@ Implementation rules:
 - Keep dependency count low
 - Prefer local component state unless shared state is clearly needed
 - Prefer verifiable, build-safe changes over broad speculative design
-- The previous attempt failed because package.json included react-virtualized@9.22.3, which is incompatible with React 18.3.1.
-- Remove react-virtualized completely.
-- Do not use any virtualization library unless explicitly required.
-- Keep dependencies minimal and React 18 compatible.
-- Regenerate only a minimal stable React + Vite todo app.
 
 {retry_hint}
 
@@ -134,17 +166,18 @@ Return ONLY JSON.
 """.strip()
 
 
+
 def run_developer(
-    task: str,
-    prd: str,
-    design: str,
-    bugs: list,
-    fix_suggestion: str,
-    execution_error: str,
-    history: list,
-    planned_changes: dict | None = None,
-    agent_context: dict | None = None,
-    project_mode: str = "new_project",
+        task: str,
+        prd: str,
+        design: str,
+        bugs: list,
+        fix_suggestion: str,
+        execution_error: str,
+        history: list,
+        planned_changes: dict | None = None,
+        agent_context: dict | None = None,
+        project_mode: str = "new_project",
 ) -> str:
     prompt = build_developer_prompt(
         task=task,
