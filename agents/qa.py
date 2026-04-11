@@ -25,7 +25,7 @@ Mission:
 - Flag blocker issues, ownership issues, and missing story requirements
 
 Relevant skill guidance:
-{qa_resources()}
+{qa_resources(story_packet)}
 
 Lane:
 {lane}

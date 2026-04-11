@@ -45,12 +45,26 @@ def main() -> int:
     parser.add_argument("--depends-on", action='append', default=None, help="Story dependency. Repeat for multiple dependencies.")
     parser.add_argument("--entry-skill", default="dev-team-workflow", choices=["dev-team-workflow", "dev-team-agent", "dev-team-setup"])
     parser.add_argument("--json", action="store_true", help="Print full result as JSON")
+    parser.add_argument("--workflow-status", action="store_true", help="Show workflow status for a project and exit")
     parser.add_argument("--save-result", help="Save full result JSON to a file")
     args = parser.parse_args()
 
     task = (args.task or "").strip()
     if args.task_file:
         task = _load_task_from_file(args.task_file)
+
+    if args.workflow_status:
+        if not args.project_id:
+            print('--workflow-status requires --project-id', file=sys.stderr)
+            return 1
+        from scripts.workflow_status import main as workflow_status_main
+        import sys as _sys
+        old_argv = list(_sys.argv)
+        try:
+            _sys.argv = [old_argv[0], '--project-id', args.project_id]
+            return workflow_status_main()
+        finally:
+            _sys.argv = old_argv
 
     if args.entry_skill == 'dev-team-setup':
         print('Setup skill is file/config based. Inspect _bmad/config.yaml and _bmad/module-help.csv.')

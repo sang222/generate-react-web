@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agents.base import load_skill_resource, render_agent_context, safe_json
+from agents.base import common_workflow_helpers, load_skill_resource, render_agent_context, safe_json
 from core.debug import trace_block
 from core.llm import call_role_llm
 
@@ -17,6 +17,8 @@ Mission:
 - Give a concrete design that a developer can implement directly with minimal guessing
 
 Relevant skill guidance:
+{common_workflow_helpers(story_packet)}
+
 {mode_rules}
 
 Task:

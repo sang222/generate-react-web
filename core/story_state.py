@@ -216,9 +216,57 @@ def lock_artifacts(project_id: str, story_id: str, gate_name: str, artifact_path
     return data
 
 
+def classify_project_level(story: Dict[str, Any], system_target: Dict[str, Any], baseline_path: str = "") -> Dict[str, Any]:
+    in_scope = story.get("in_scope", []) or []
+    acceptance = story.get("acceptance_criteria", []) or []
+    deps = story.get("depends_on", []) or []
+    backend = system_target.get("backend_framework") or ""
+    system_type = system_target.get("system_type", "web_app")
+
+    score = 0
+    reasons: List[str] = []
+    if system_type == "fullstack_website":
+        score += 2
+        reasons.append("fullstack target")
+    if baseline_path:
+        score += 1
+        reasons.append("existing baseline")
+    if backend:
+        score += 1
+        reasons.append(f"backend={backend}")
+    if len(in_scope) >= 4:
+        score += 1
+        reasons.append("broad in-scope set")
+    if len(acceptance) >= 4:
+        score += 1
+        reasons.append("many acceptance criteria")
+    if deps:
+        score += 1
+        reasons.append("story has dependencies")
+
+    if score <= 1:
+        level = 0
+        profile = "micro"
+    elif score == 2:
+        level = 1
+        profile = "small"
+    elif score == 3:
+        level = 2
+        profile = "standard"
+    elif score <= 5:
+        level = 3
+        profile = "large"
+    else:
+        level = 4
+        profile = "enterprise"
+
+    return {"level": level, "profile": profile, "reasoning": reasons}
+
+
 def default_story_packet(project_id: str, epic_id: str, story_id: str, story_name: str, baseline_path: str, ownership_map_path: str, task: str) -> Dict[str, Any]:
     story = get_story_definition(project_id, story_id)
     system_target = get_system_target(load_module_config())
+    sizing = classify_project_level(story, system_target, baseline_path)
     return {
         'project_id': project_id,
         'epic_id': epic_id,
@@ -244,6 +292,9 @@ def default_story_packet(project_id: str, epic_id: str, story_id: str, story_nam
             'Respect ownership map and locked artifacts.',
         ],
         'system_target': system_target,
+        'project_level': sizing['level'],
+        'delivery_profile': sizing['profile'],
+        'level_reasoning': sizing['reasoning'],
         'frontend': {'stack': system_target['frontend_stack']},
         'backend': {
             'language': system_target['backend_language'],

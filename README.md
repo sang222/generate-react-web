@@ -63,3 +63,60 @@ This version validates a fullstack target by default:
 - database: PostgreSQL + JPA
 
 Frontend validation runs `npm install` and `npm run build` inside `frontend/`. Backend validation runs `./gradlew build -x test` when a wrapper exists, otherwise `gradle build -x test`.
+
+
+## v15 additions
+
+### 1. Helper pattern
+Shared helper resources now live under:
+- `skills/dev-team-workflow/resources/helpers/`
+
+Purpose:
+- reduce repeated prompt policy text
+- keep common workflow rules in one place
+- make prompts smaller and easier to maintain
+
+Typical helper content includes:
+- delivery rules
+- dependency rules
+- system target rules
+- lane execution constraints
+
+### 2. Workflow status
+Each project now has a lightweight operator-readable workflow status view.
+
+Main status files:
+- `project_state/<project_id>/workflow_status.yaml`
+- `project_state/<project_id>/delivery_index.json`
+- `project_state/<project_id>/gate_state.json`
+
+Purpose:
+- show the current delivered story
+- show the last successful gate
+- show the current workflow state
+- suggest the next step for the operator
+
+Commands:
+```bash
+python main.py --workflow-status --project-id <project_id>
+python scripts/workflow_status.py --project-id <project_id>
+```
+
+### 3. Project sizing / right-sizing
+Each story packet now includes:
+- `project_level`
+- `delivery_profile`
+- `level_reasoning`
+
+Purpose:
+- avoid using the same heavy workflow for every request
+- scale workflow depth based on story size and complexity
+- decide when FE/BE lanes should be activated
+
+Typical meaning:
+- lower level = lighter workflow
+- higher level = stricter workflow, more review, more coordination
+
+Runtime effect:
+- small stories can stay lighter and narrower
+- larger stories can activate stronger review, richer manifests, and FE/BE lane coordination

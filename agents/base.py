@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 WORKFLOW_SKILL_ROOT = Path(__file__).resolve().parent.parent / "skills" / "dev-team-workflow"
 RESOURCE_ROOT = WORKFLOW_SKILL_ROOT / "resources"
+HELPER_ROOT = RESOURCE_ROOT / "helpers"
 
 
 def safe_json(data: Any) -> str:
@@ -36,6 +37,13 @@ def compact_history(history: List[Dict[str, Any]], limit: int = 6) -> str:
 
 def load_skill_resource(name: str) -> str:
     path = RESOURCE_ROOT / name
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8").strip()
+
+
+def load_helper_resource(name: str) -> str:
+    path = HELPER_ROOT / name
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8").strip()
@@ -82,9 +90,52 @@ def render_agent_context(agent_context: Dict[str, Any], max_memories: int = 5) -
     return "\n".join(lines).strip()
 
 
-def developer_resources(project_mode: str, execution_error: str) -> str:
+def render_system_target_helper(story_packet: dict | None) -> str:
+    target = (story_packet or {}).get("system_target", {})
+    level = (story_packet or {}).get("project_level", "")
+    profile = (story_packet or {}).get("delivery_profile", "")
+    reasons = (story_packet or {}).get("level_reasoning", []) or []
+    lines = [
+        "Configured system target:",
+        f"- System type: {target.get('system_type', 'web_app')}",
+        f"- Frontend: {target.get('frontend_stack', 'react-vite')}",
+        f"- Backend: {target.get('backend_language', 'none')} + {target.get('backend_framework', 'none')} ({target.get('backend_build_tool', 'n/a')})",
+        f"- Database: {target.get('database_engine', 'none')} + {target.get('database_orm', 'none')}",
+        f"- Project level: {level} ({profile})",
+    ]
+    if reasons:
+        lines.append("- Sizing reasons: " + ", ".join(reasons))
+    return "\n".join(lines)
+
+
+def render_right_sizing_helper(story_packet: dict | None) -> str:
+    level = int((story_packet or {}).get("project_level", 2) or 2)
+    profile = (story_packet or {}).get("delivery_profile", "standard")
+    base = load_helper_resource("project_levels.md")
+    lines = [base, "", f"Current delivery profile: level {level} ({profile})"]
+    if level <= 1:
+        lines.append("Right-sizing rule: keep the solution very small, prefer fewer files, and avoid unnecessary FE/BE separation work.")
+    elif level == 2:
+        lines.append("Right-sizing rule: standard story delivery. Keep architecture practical and bounded to the story.")
+    else:
+        lines.append("Right-sizing rule: preserve story gating, baseline safety, and stronger architecture discipline.")
+    return "\n".join([item for item in lines if item]).strip()
+
+
+def common_workflow_helpers(story_packet: dict | None) -> str:
+    parts = [
+        load_helper_resource("global_delivery_rules.md"),
+        render_system_target_helper(story_packet),
+        render_right_sizing_helper(story_packet),
+    ]
+    return "\n\n".join([item for item in parts if item]).strip()
+
+
+def developer_resources(project_mode: str, execution_error: str, story_packet: dict | None = None) -> str:
     resources = [
         load_skill_resource("skill_overview.md"),
+        common_workflow_helpers(story_packet),
+        load_helper_resource("dependency_policy.md"),
         load_skill_resource("developer_output_contract.md"),
         load_skill_resource("react_dependency_policy.md"),
         load_skill_resource("new_project_rules.md" if project_mode == "new_project" else "existing_project_rules.md"),
@@ -94,19 +145,21 @@ def developer_resources(project_mode: str, execution_error: str) -> str:
     return "\n\n".join([item for item in resources if item]).strip()
 
 
-def qa_resources() -> str:
+def qa_resources(story_packet: dict | None = None) -> str:
     return "\n\n".join(
         [
             load_skill_resource("skill_overview.md"),
+            common_workflow_helpers(story_packet),
             load_skill_resource("qa_review_lenses.md"),
         ]
     ).strip()
 
 
-def lead_resources() -> str:
+def lead_resources(story_packet: dict | None = None) -> str:
     return "\n\n".join(
         [
             load_skill_resource("skill_overview.md"),
+            common_workflow_helpers(story_packet),
             load_skill_resource("lead_gate_rules.md"),
         ]
     ).strip()

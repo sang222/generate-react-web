@@ -41,3 +41,13 @@ memory:
   session_logs_enabled: true
   curated_memory_enabled: true
   shared_memory_enabled: true
+
+project_levels:
+  default: 3
+  enforce_right_sizing: true
+  profiles:
+    0: micro
+    1: small
+    2: standard
+    3: large
+    4: enterprise

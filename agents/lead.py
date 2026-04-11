@@ -17,6 +17,7 @@ def build_lead_prompt(
     rule_result: dict,
     history: list,
     agent_context: dict | None = None,
+    story_packet: dict | None = None,
 ) -> str:
     return f"""
 You are an Engineering Lead.
@@ -27,7 +28,7 @@ Mission:
 - Use your own durable memory as supporting context when helpful
 
 Relevant skill guidance:
-{lead_resources()}
+{lead_resources(story_packet)}
 
 Task:
 {task}
@@ -92,6 +93,7 @@ def run_lead(
     rule_result: dict,
     history: list,
     agent_context: dict | None = None,
+    story_packet: dict | None = None,
 ) -> str:
     prompt = build_lead_prompt(
         task=task,
@@ -105,6 +107,7 @@ def run_lead(
         rule_result=rule_result,
         history=history,
         agent_context=agent_context,
+        story_packet=story_packet,
     )
     trace_block("LEAD PROMPT", prompt)
     response = call_role_llm("lead", prompt)

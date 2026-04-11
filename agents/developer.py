@@ -93,7 +93,7 @@ Mission:
 - The default system target is fullstack: React + Vite frontend, Java + Spring Boot backend, Gradle build, PostgreSQL + JPA
 
 Relevant skill guidance:
-{developer_resources(project_mode, execution_error)}
+{developer_resources(project_mode, execution_error, story_packet)}
 
 {DEPENDENCY_POLICY}
 

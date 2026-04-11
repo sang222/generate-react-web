@@ -119,6 +119,48 @@ def _find_missing_required_files_in_output() -> List[str]:
     return sorted(path for path in required if not (OUTPUT_DIR / path).exists())
 
 
+def _detect_needed_lanes(story_packet: Dict[str, Any], task: str) -> List[str]:
+    packet_text = (task + "\n" + json.dumps(story_packet, ensure_ascii=False)).lower()
+    level = int(story_packet.get("project_level", 2) or 2)
+    backend_markers = ["backend", "api", "spring", "controller", "repository", "database", "postgres", "jpa", "auth", "service"]
+    needs_backend = any(marker in packet_text for marker in backend_markers)
+    if level <= 1 and not needs_backend:
+        return ["frontend"]
+    if needs_backend or story_packet.get("system_target", {}).get("system_type") == "fullstack_website":
+        return ["frontend", "backend"]
+    return ["frontend"]
+
+
+def _workflow_status_path(project_id: str) -> Path:
+    return Path("project_state") / project_id / "workflow_status.yaml"
+
+
+def _write_workflow_status(context: Dict[str, Any], recommendation: str = "") -> None:
+    path = _workflow_status_path(context['project_id'])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = {}
+    if isinstance(context.get('delivery_index'), dict):
+        current = context.get('delivery_index', {}).get('current_delivered_story', {}) or {}
+    gate_state = context.get('gate_state', {}) or {}
+    lines = [
+        f"project_id: {context.get('project_id','')}",
+        f"epic_id: {context.get('epic_id','')}",
+        f"story_id: {context.get('story_id','')}",
+        f"story_name: {json.dumps(context.get('story_name',''), ensure_ascii=False)}",
+        f"project_mode: {context.get('project_mode','')}",
+        f"project_level: {context.get('story_packet',{}).get('project_level','')}",
+        f"delivery_profile: {context.get('story_packet',{}).get('delivery_profile','')}",
+        f"current_gate: {gate_state.get('current_gate','')}",
+        f"final_decision: {context.get('final_decision','')}",
+        f"release_status: {context.get('release_status','')}",
+        f"current_delivered_story_id: {current.get('story_id','')}",
+        f"current_delivered_story_name: {json.dumps(current.get('story_name',''), ensure_ascii=False)}",
+        f"next_story: {context.get('next_story','')}",
+        f"recommendation: {json.dumps(recommendation, ensure_ascii=False)}",
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding='utf-8')
+
+
 def _make_empty_qa_detail() -> Dict[str, List[str]]:
     return {
         "structural_bugs": [],
@@ -260,6 +302,7 @@ def _run_lead_and_store_summary(context: Dict[str, Any], memory_manager: AgentMe
         rule_result={"release_status": context["release_status"], "severity": context["severity"], "reason": rule_reason},
         history=context["history"],
         agent_context=lead_ctx,
+        story_packet=context.get("story_packet", {}),
     )
     context["lead_summary"] = _extract_json_object(lead_raw)
 
@@ -327,8 +370,8 @@ def _create_story_delivery(context: Dict[str, Any]) -> Dict[str, Any]:
         "integration_notes": context.get("integration_notes", []),
     }, ensure_ascii=False, indent=2), encoding='utf-8')
     lock_artifacts(project_id, story_id, 'RELEASE_GATE', [str(manifest_path), str(source_dir), str(review_path), str(integration_path)])
-    update_delivery_index(project_id, epic_id, story_id, story_name, str(manifest_path))
-    return {"delivery_root": str(delivery_root), "delivery_source": str(source_dir), "delivery_manifest": str(manifest_path)}
+    data = update_delivery_index(project_id, epic_id, story_id, story_name, str(manifest_path))
+    return {"delivery_root": str(delivery_root), "delivery_source": str(source_dir), "delivery_manifest": str(manifest_path), "delivery_index": data}
 
 
 def _run_lane_developer(context: Dict[str, Any], memory_manager: AgentMemoryManager, lane: str, role: str, ownership_map: Dict[str, Any]) -> tuple[list[dict], dict]:
@@ -392,7 +435,7 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
 
     epic_context = ensure_epic_context(project_id, epic_id, story_id, story_name, depends_on or [])
     story_def = get_story_definition(project_id, story_id)
-    ensure_delivery_index(project_id, epic_id, epic_context)
+    delivery_index = ensure_delivery_index(project_id, epic_id, epic_context)
     artifact_locks = ensure_artifact_locks(project_id)
     ownership_map = ensure_ownership_map(project_id)
     ownership_path = str(ownership_map_path(project_id))
@@ -450,6 +493,7 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
         "integration_conflicts": [],
         "integration_notes": [],
         "next_story": "",
+        "delivery_index": delivery_index,
     }
 
     context["first_breath"] = memory_manager.ensure_first_breath(task, _build_workflow_context(context))
@@ -462,6 +506,7 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
     context['gate_state'] = pass_gate(context['gate_state'], 'GATE_1_RESEARCH', 'Research/brief context captured.', ['docs/brief.md'])
     context['gate_state'] = pass_gate(context['gate_state'], 'GATE_2_SPECIFICATION', 'Specification captured for current story.', ['docs/prd.md', 'project_state/%s/epic_context.json' % project_id])
     save_gate_state(context['gate_state'])
+    _write_workflow_status(context, 'Proceed to architecture for the current story.')
 
     architect_ctx = memory_manager.load_context("architect", task, _build_workflow_context(context))
     context["design"] = run_architect(
@@ -474,6 +519,7 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
         context["design"] += f"\n\nBaseline project tree:\n{context['baseline_tree']}"
     context['gate_state'] = pass_gate(context['gate_state'], 'GATE_3_DESIGN', 'Architecture and ownership map prepared.', ['docs/architecture.md', context['ownership_map_path']])
     save_gate_state(context['gate_state'])
+    _write_workflow_status(context, 'Proceed to implementation for the current story.')
 
     for loop in range(1, MAX_LOOP + 1):
         context["loop_count"] = loop
@@ -483,8 +529,14 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
         _write_run_state(context)
         _prepare_baseline(context)
 
-        be_files, _ = _run_lane_developer(context, memory_manager, "backend", "be_developer", ownership_map)
-        fe_files, _ = _run_lane_developer(context, memory_manager, "frontend", "fe_developer", ownership_map)
+        active_lanes = _detect_needed_lanes(context["story_packet"], context["task"])
+        be_files: List[Dict[str, str]] = []
+        fe_files: List[Dict[str, str]] = []
+        if "backend" in active_lanes:
+            be_files, _ = _run_lane_developer(context, memory_manager, "backend", "be_developer", ownership_map)
+        if "frontend" in active_lanes:
+            fe_files, _ = _run_lane_developer(context, memory_manager, "frontend", "fe_developer", ownership_map)
+        context["active_lanes"] = active_lanes
         context["fe_files"] = fe_files
         context["be_files"] = be_files
 
@@ -503,9 +555,10 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
             context["release_status"], context["severity"], reason = classify_release_status(context)
             _run_lead_and_store_summary(context, memory_manager, reason)
             _append_history(context)
+            _write_workflow_status(context, "Retry required for the current story.")
             continue
 
-        conflicts = detect_cross_lane_conflicts(fe_files, be_files, ownership_map)
+        conflicts = detect_cross_lane_conflicts(fe_files, be_files, ownership_map) if set(context.get("active_lanes", [])) == {"frontend", "backend"} else []
         context["integration_conflicts"] = conflicts
         if conflicts:
             context["execution_error"] = "[integration conflict]\n" + "\n".join(conflicts)
@@ -533,12 +586,13 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
             context["release_status"], context["severity"], reason = classify_release_status(context)
             _run_lead_and_store_summary(context, memory_manager, reason)
             _append_history(context)
+            _write_workflow_status(context, "Retry required for the current story.")
             continue
 
-        fe_review = _run_lane_review(context, memory_manager, "frontend", "fe_reviewer", {"files": lane_files(merged_files, 'frontend', ownership_map)})
-        be_review = _run_lane_review(context, memory_manager, "backend", "be_reviewer", {"files": lane_files(merged_files, 'backend', ownership_map)})
-        integration_extra = [{"issue": c} for c in conflicts]
-        integration_review = _run_lane_review(context, memory_manager, "integration", "integration_qa", context["code"])
+        empty_review = _make_empty_qa_detail() | {"fix_suggestion": ""}
+        fe_review = _run_lane_review(context, memory_manager, "frontend", "fe_reviewer", {"files": lane_files(merged_files, 'frontend', ownership_map)}) if "frontend" in context.get("active_lanes", []) else empty_review
+        be_review = _run_lane_review(context, memory_manager, "backend", "be_reviewer", {"files": lane_files(merged_files, 'backend', ownership_map)}) if "backend" in context.get("active_lanes", []) else empty_review
+        integration_review = _run_lane_review(context, memory_manager, "integration", "integration_qa", context["code"]) if len(context.get("active_lanes", [])) > 1 else empty_review
         context["fe_review"] = fe_review
         context["be_review"] = be_review
         context["integration_review"] = integration_review
@@ -574,6 +628,7 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
     if context["release_status"] == "DONE":
         delivery = _create_story_delivery(context)
         context.update(delivery)
+        _write_workflow_status(context, "Current story delivered. Move to the next ready story if any.")
         context["next_story"] = context.get("lead_summary", {}).get("improvement", "")
         context["final_decision"] = "DELIVER_STORY"
     else:

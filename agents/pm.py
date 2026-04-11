@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agents.base import load_skill_resource, render_agent_context
+from agents.base import common_workflow_helpers, load_skill_resource, render_agent_context
 from core.debug import trace_block
 from core.llm import call_role_llm
 
@@ -17,6 +17,8 @@ Mission:
 
 Skill context:
 {skill_overview}
+
+{common_workflow_helpers(story_packet)}
 
 User task:
 {task}
