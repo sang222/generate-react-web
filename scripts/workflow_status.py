@@ -38,6 +38,8 @@ def main() -> int:
     gates = _read_json(root / 'gate_state.json')
     locks = _read_json(root / 'artifact_locks.json')
     status = _read_yamlish(root / 'workflow_status.yaml')
+    readiness = _read_json(root / 'brownfield_readiness_report.json')
+    impact = _read_json(root / 'change_impact_report.json')
 
     print(f"Project: {args.project_id}")
     print(f"Epic: {epic.get('epic_id', '')} {epic.get('epic_name', '')}")
@@ -50,6 +52,12 @@ def main() -> int:
     print(f"Next ready story: {next_story.get('story_id', '')} {next_story.get('story_name', '')}")
     print(f"Locked artifacts: {len((locks.get('locked_artifacts') or locks.get('artifacts') or []))}")
     print(f"Recommendation: {status.get('recommendation', '')}")
+    if readiness:
+        print(f"Brownfield ready: {readiness.get('ready', False)}")
+        if readiness.get('missing_information'):
+            print(f"Missing info: {', '.join(readiness.get('missing_information', []))}")
+    if impact:
+        print(f"Affected modules: {len(impact.get('affected_modules', []) or [])}")
     print('Story statuses:')
     story_defs = {s.get('story_id'): s for s in epic.get('stories', [])}
     for story in (delivery.get('stories') or []):

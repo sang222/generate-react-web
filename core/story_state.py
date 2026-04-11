@@ -216,7 +216,7 @@ def lock_artifacts(project_id: str, story_id: str, gate_name: str, artifact_path
     return data
 
 
-def classify_project_level(story: Dict[str, Any], system_target: Dict[str, Any], baseline_path: str = "") -> Dict[str, Any]:
+def classify_project_level(story: Dict[str, Any], system_target: Dict[str, Any], baseline_path: str = "", project_mode: str = "new_project") -> Dict[str, Any]:
     in_scope = story.get("in_scope", []) or []
     acceptance = story.get("acceptance_criteria", []) or []
     deps = story.get("depends_on", []) or []
@@ -231,6 +231,9 @@ def classify_project_level(story: Dict[str, Any], system_target: Dict[str, Any],
     if baseline_path:
         score += 1
         reasons.append("existing baseline")
+    if project_mode == 'existing_project':
+        score += 1
+        reasons.append('brownfield uplift')
     if backend:
         score += 1
         reasons.append(f"backend={backend}")
@@ -263,10 +266,10 @@ def classify_project_level(story: Dict[str, Any], system_target: Dict[str, Any],
     return {"level": level, "profile": profile, "reasoning": reasons}
 
 
-def default_story_packet(project_id: str, epic_id: str, story_id: str, story_name: str, baseline_path: str, ownership_map_path: str, task: str) -> Dict[str, Any]:
+def default_story_packet(project_id: str, epic_id: str, story_id: str, story_name: str, baseline_path: str, ownership_map_path: str, task: str, project_mode: str = 'new_project') -> Dict[str, Any]:
     story = get_story_definition(project_id, story_id)
     system_target = get_system_target(load_module_config())
-    sizing = classify_project_level(story, system_target, baseline_path)
+    sizing = classify_project_level(story, system_target, baseline_path, project_mode)
     return {
         'project_id': project_id,
         'epic_id': epic_id,
@@ -274,7 +277,8 @@ def default_story_packet(project_id: str, epic_id: str, story_id: str, story_nam
         'story_name': story_name,
         'story_type': story.get('story_type', 'feature'),
         'business_goal': story.get('business_goal', task),
-        'request_type': 'story_delivery',
+        'request_type': 'existing_project_story_delivery' if project_mode == 'existing_project' else 'story_delivery',
+        'project_mode': project_mode,
         'baseline_path': baseline_path,
         'delivery_target': f'deliveries/{project_id}/{story_id}/source',
         'ownership_map_path': ownership_map_path,
@@ -291,6 +295,8 @@ def default_story_packet(project_id: str, epic_id: str, story_id: str, story_nam
             'Modify the current baseline instead of regenerating from scratch when baseline exists.',
             'Respect ownership map and locked artifacts.',
         ],
+        'allowed_change_scope': [],
+        'forbidden_change_scope': [],
         'system_target': system_target,
         'project_level': sizing['level'],
         'delivery_profile': sizing['profile'],
