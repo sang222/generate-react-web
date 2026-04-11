@@ -12,8 +12,8 @@ from agents.developer import run_developer
 from agents.lead import run_lead
 from agents.pm import run_pm
 from agents.qa import run_qa
-from core.config import load_module_config
-from core.executor import run_react_check
+from core.config import get_system_target, load_module_config
+from core.executor import run_system_check
 from core.file_manager import (
     OUTPUT_DIR,
     copy_tree,
@@ -41,12 +41,12 @@ from core.change_request import create_change_request
 from memory.manager import AgentMemoryManager
 
 MODULE_CONFIG = load_module_config()
+SYSTEM_TARGET = get_system_target(MODULE_CONFIG)
 MAX_LOOP = int(MODULE_CONFIG.get("devteam", {}).get("max_retry_loops", 3))
 OUTPUT_PROJECT_DIR = MODULE_CONFIG.get("devteam", {}).get("output_project_dir", "output_project")
 STATE_DIR = Path(MODULE_CONFIG.get("devteam", {}).get("state_dir", "state"))
 RUN_STATE_PATH = STATE_DIR / "run_state.json"
 DELIVERIES_DIR = Path(MODULE_CONFIG.get("devteam", {}).get("deliveries_dir", "deliveries"))
-REQUIRED_FILES = {"package.json", "index.html", "src/main.jsx", "src/App.jsx", "src/index.css"}
 
 
 def log_step(message: str) -> None:
@@ -99,7 +99,24 @@ def _dedupe_files(files: List[Dict[str, str]]) -> List[Dict[str, str]]:
 
 
 def _find_missing_required_files_in_output() -> List[str]:
-    return sorted(path for path in REQUIRED_FILES if not (OUTPUT_DIR / path).exists())
+    required: List[str] = []
+    if SYSTEM_TARGET.get("system_type") == "fullstack_website":
+        required.extend([
+            "frontend/package.json",
+            "frontend/index.html",
+            "frontend/src/main.jsx",
+            "frontend/src/App.jsx",
+            "backend/build.gradle",
+            "backend/src/main/resources/application.properties",
+        ])
+    else:
+        required.extend([
+            "package.json",
+            "index.html",
+            "src/main.jsx",
+            "src/App.jsx",
+        ])
+    return sorted(path for path in required if not (OUTPUT_DIR / path).exists())
 
 
 def _make_empty_qa_detail() -> Dict[str, List[str]]:
@@ -182,6 +199,7 @@ def _build_workflow_context(context: Dict[str, Any]) -> Dict[str, Any]:
         "baseline_path": context.get("baseline_path", ""),
         "baseline_tree": context.get("baseline_tree", ""),
         "story_packet": context.get("story_packet", {}),
+        "system_target": context.get("system_target", SYSTEM_TARGET),
         "prd": context.get("prd", ""),
         "design": context.get("design", ""),
         "bugs": context.get("bugs", []),
@@ -216,6 +234,7 @@ def _write_run_state(context: Dict[str, Any]) -> str:
         "execution_error": context.get("execution_error", ""),
         "qa_detail": context.get("qa_detail", {}),
         "story_packet": context.get("story_packet", {}),
+        "system_target": context.get("system_target", SYSTEM_TARGET),
         "history_tail": context.get("history", [])[-3:],
         "output_project_dir": OUTPUT_PROJECT_DIR,
         "gate_state": context.get("gate_state", {}),
@@ -449,6 +468,7 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
         task=f"{task}\n\nCurrent story packet:\n{json.dumps(story_packet, ensure_ascii=False, indent=2)}\n\nOwnership map:\n{json.dumps(ownership_map, ensure_ascii=False, indent=2)}",
         prd=context["prd"],
         agent_context=architect_ctx,
+        story_packet=story_packet,
     )
     if context["baseline_tree"]:
         context["design"] += f"\n\nBaseline project tree:\n{context['baseline_tree']}"
@@ -530,7 +550,7 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
         context["fix_suggestion"] = " ".join(filter(None, [fe_review.get("fix_suggestion", ""), be_review.get("fix_suggestion", ""), integration_review.get("fix_suggestion", "")])).strip()
         context["bugs"] = [*context["qa_detail"]["structural_bugs"], *context["qa_detail"]["functional_bugs"], *context["qa_detail"]["prd_gaps"], *context["qa_detail"]["regression_bugs"]]
 
-        success, error_message = run_react_check()
+        success, error_message = run_system_check(system_target=SYSTEM_TARGET)
         if context["execution_error"]:
             success = False
         if not success and not context["execution_error"]:

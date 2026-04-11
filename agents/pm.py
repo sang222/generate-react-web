@@ -5,7 +5,7 @@ from core.debug import trace_block
 from core.llm import call_role_llm
 
 
-def build_pm_prompt(task: str, agent_context: dict | None = None) -> str:
+def build_pm_prompt(task: str, agent_context: dict | None = None, story_packet: dict | None = None) -> str:
     skill_overview = load_skill_resource('skill_overview.md')
     return f"""
 You are a Senior Product Manager.
@@ -20,6 +20,9 @@ Skill context:
 
 User task:
 {task}
+
+Story packet:
+{story_packet or {}}
 
 Your agent context:
 {render_agent_context(agent_context or {})}
@@ -40,7 +43,7 @@ Rules:
 - Be concrete and implementation-oriented
 - Do not ask questions
 - Assume reasonable defaults if details are missing
-- Keep scope realistic for a local React Vite project
+- Keep scope realistic for the configured fullstack target, including frontend, backend, and database responsibilities when present
 - Do not generate code
 - Do not produce architecture or file structure
 - Acceptance criteria must be specific and testable
@@ -49,8 +52,8 @@ Return only plain text.
 """.strip()
 
 
-def run_pm(task: str, agent_context: dict | None = None) -> str:
-    prompt = build_pm_prompt(task=task, agent_context=agent_context)
+def run_pm(task: str, agent_context: dict | None = None, story_packet: dict | None = None) -> str:
+    prompt = build_pm_prompt(task=task, agent_context=agent_context, story_packet=story_packet)
     trace_block("PM PROMPT", prompt)
     response = call_role_llm("pm", prompt)
     trace_block("PM RESPONSE", response)

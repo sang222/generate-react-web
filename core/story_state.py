@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
+from core.config import get_system_target, load_module_config
+
 PROJECT_STATE_DIR = Path("project_state")
 
 
@@ -216,6 +218,7 @@ def lock_artifacts(project_id: str, story_id: str, gate_name: str, artifact_path
 
 def default_story_packet(project_id: str, epic_id: str, story_id: str, story_name: str, baseline_path: str, ownership_map_path: str, task: str) -> Dict[str, Any]:
     story = get_story_definition(project_id, story_id)
+    system_target = get_system_target(load_module_config())
     return {
         'project_id': project_id,
         'epic_id': epic_id,
@@ -240,4 +243,15 @@ def default_story_packet(project_id: str, epic_id: str, story_id: str, story_nam
             'Modify the current baseline instead of regenerating from scratch when baseline exists.',
             'Respect ownership map and locked artifacts.',
         ],
+        'system_target': system_target,
+        'frontend': {'stack': system_target['frontend_stack']},
+        'backend': {
+            'language': system_target['backend_language'],
+            'framework': system_target['backend_framework'],
+            'build_tool': system_target['backend_build_tool'],
+        },
+        'database': {
+            'engine': system_target['database_engine'],
+            'orm': system_target['database_orm'],
+        },
     }

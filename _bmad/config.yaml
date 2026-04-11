@@ -20,10 +20,21 @@ devteam:
   max_retry_loops: 3
   install_command: npm install
   build_command: npm run build
-  frontend_stack: react-vite
   qa_enabled: true
   build_validation_enabled: true
   generate_distillate: true
+
+system:
+  system_type: fullstack_website
+  frontend:
+    stack: react-vite
+  backend:
+    language: java
+    framework: spring_boot
+    build_tool: gradle
+  database:
+    engine: postgres
+    orm: jpa
 
 memory:
   sanctum_root: _bmad/memory

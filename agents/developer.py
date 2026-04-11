@@ -7,11 +7,13 @@ from core.llm import call_role_llm
 
 SIMPLE_JSON_EXAMPLE = """{
   "files": [
-    {"path": "package.json", "content": "..."},
-    {"path": "index.html", "content": "..."},
-    {"path": "src/main.jsx", "content": "..."},
-    {"path": "src/App.jsx", "content": "..."},
-    {"path": "src/index.css", "content": "..."}
+    {"path": "frontend/package.json", "content": "..."},
+    {"path": "frontend/index.html", "content": "..."},
+    {"path": "frontend/src/main.jsx", "content": "..."},
+    {"path": "frontend/src/App.jsx", "content": "..."},
+    {"path": "backend/build.gradle", "content": "..."},
+    {"path": "backend/src/main/java/com/example/app/Application.java", "content": "..."},
+    {"path": "backend/src/main/resources/application.properties", "content": "..."}
   ]
 }"""
 
@@ -77,17 +79,18 @@ Retry priority:
     retry_hint = "\n\n".join(part for part in retry_hint_parts if part)
 
     lane_guidance = {
-        'frontend': "You own frontend paths such as src/, public/, web/, frontend/, package.json and index.html when needed for UI integration.",
-        'backend': "You own backend paths such as backend/, api/, db/, server/ and shared/contracts/. Avoid frontend-only files unless required for integration.",
+        'frontend': "You own frontend paths such as frontend/, frontend/src/, frontend/public/, and shared frontend-facing contracts when needed for integration.",
+        'backend': "You own backend paths such as backend/, backend/src/main/java/, backend/src/main/resources/, and shared/contracts/. Avoid frontend-only files unless required for integration.",
     }.get(lane, "Stay within your assigned ownership lane.")
 
     return f"""
-You are a Senior {lane.capitalize()} Developer working inside a gated story delivery workflow.
+You are a Senior {lane.capitalize()} Developer working inside a gated fullstack story delivery workflow.
 
 Mission:
 - Implement the current story safely inside your ownership lane
 - Return only the files your lane needs to create or change
 - Respect the existing baseline and do not regenerate unrelated files
+- The default system target is fullstack: React + Vite frontend, Java + Spring Boot backend, Gradle build, PostgreSQL + JPA
 
 Relevant skill guidance:
 {developer_resources(project_mode, execution_error)}
@@ -155,12 +158,18 @@ Required schema:
 {SIMPLE_JSON_EXAMPLE}
 
 Implementation rules:
-- Use React + Vite when touching frontend code
-- Keep dependencies low and compatible
-- Preserve buildability
-- Keep imports exact and safe
-- Prefer minimal, verifiable changes over broad rewrites
-- Treat the delivered baseline as stable unless the current story explicitly changes it
+- Use the configured stacks exactly; do not invent a different stack.
+- Frontend stack: {(story_packet or {}).get("system_target", {}).get("frontend_stack", "react-vite")}
+- Backend stack: {(story_packet or {}).get("system_target", {}).get("backend_language", "java")} + {(story_packet or {}).get("system_target", {}).get("backend_framework", "spring_boot")} using {(story_packet or {}).get("system_target", {}).get("backend_build_tool", "gradle")}
+- Database stack: {(story_packet or {}).get("system_target", {}).get("database_engine", "postgres")} + {(story_packet or {}).get("system_target", {}).get("database_orm", "jpa")}
+- When touching frontend code, use a dedicated frontend/ app with React + Vite conventions.
+- When touching backend code, use a dedicated backend/ service with Java + Spring Boot conventions and the configured build tool.
+- For Java backend, generate Gradle build files, Spring Boot entrypoint, controller/service/repository/entity structure, and application.properties configured for PostgreSQL + JPA.
+- Keep dependencies low and compatible.
+- Preserve buildability.
+- Keep imports exact and safe.
+- Prefer minimal, verifiable changes over broad rewrites.
+- Treat the delivered baseline as stable unless the current story explicitly changes it.
 
 {retry_hint}
 
