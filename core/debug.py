@@ -26,6 +26,3 @@ def trace_block(title: str, content: str) -> None:
     print(f"\n[{_now()}] {'=' * 20} {title} {'=' * 20}", flush=True)
     print(_truncate(content), flush=True)
     print(f"[{_now()}] {'=' * 20} END {title} {'=' * 20}\n", flush=True)
-
-def log_step(scope: str, message: str) -> None:
-    print(f"[{_now()}] [{scope}] {message}")

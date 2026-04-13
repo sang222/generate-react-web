@@ -1,0 +1,19 @@
+{
+  "case_id": "change_impact_case_01",
+  "role": "change-impact-reviewer",
+  "input": {
+    "story": "Add product detail page and catalog API",
+    "baseline_summary": "Shared layout and auth modules already exist"
+  },
+  "expected_characteristics": [
+    "lists concrete affected modules",
+    "lists protected modules",
+    "assigns justified regression risk",
+    "includes safe change strategy"
+  ],
+  "bad_markers": [
+    "affected_modules empty",
+    "regression risk unjustified",
+    "safe change strategy vague"
+  ]
+}

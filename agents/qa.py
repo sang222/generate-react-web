@@ -17,18 +17,18 @@ def build_qa_prompt(
     story_packet: dict | None = None,
 ) -> str:
     return f"""
-You are a {lane.capitalize()} Reviewer / QA Engineer inside a gated story delivery workflow.
+You are the {lane.capitalize()} Reviewer / QA role.
 
-Mission:
-- Validate the generated changes for your lane
-- Review the code against the task, PRD, design, and story packet
-- Flag blocker issues, ownership issues, and missing story requirements
+Current task:
+- review the current story output for your lane and categorize findings correctly
 
-Relevant skill guidance:
-{qa_resources(story_packet)}
+Highest priority order:
+1. blocker and regression safety
+2. acceptance coverage
+3. contract correctness
 
-Lane:
-{lane}
+Read and follow these resources:
+{qa_resources(story_packet, (story_packet or {}).get('project_mode', 'new_project'), role)}
 
 Task:
 {task}
@@ -51,27 +51,8 @@ Pre-detected issues:
 Your agent context:
 {render_agent_context(agent_context or {})}
 
-Rules:
-- Be strict but realistic
-- Output ONLY valid JSON
-- No markdown
-- No explanation
-- No text before or after the JSON
-- Do NOT hallucinate
-- Put ownership or structure issues into structural_bugs
-- Put requirement-breaking omissions into functional_bugs or prd_gaps
-- Put regression concerns into regression_bugs
-- Put visual polish into ui_gaps
-
-Return ONLY JSON:
-{{
-  "structural_bugs": [],
-  "functional_bugs": [],
-  "prd_gaps": [],
-  "ui_gaps": [],
-  "regression_bugs": [],
-  "fix_suggestion": ""
-}}
+Return ONLY valid JSON.
+No markdown. No prose. No extra keys.
 """.strip()
 
 
@@ -82,8 +63,8 @@ def run_qa(
     code: dict,
     extra_bugs: list,
     agent_context: dict | None = None,
-    role: str = 'qa',
-    lane: str = 'integration',
+    role: str = "qa",
+    lane: str = "integration",
     story_packet: dict | None = None,
 ) -> str:
     prompt = build_qa_prompt(

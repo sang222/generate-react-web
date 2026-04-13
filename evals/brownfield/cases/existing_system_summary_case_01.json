@@ -1,0 +1,19 @@
+{
+  "case_id": "existing_system_summary_case_01",
+  "role": "brownfield-analyst",
+  "input": {
+    "story": "Add catalog pages without breaking current layout",
+    "baseline_summary": "React frontend, Spring Boot backend, shared customer layout used by all public pages"
+  },
+  "expected_characteristics": [
+    "names stack clearly",
+    "mentions shared layout as protected or fragile",
+    "identifies route or module boundaries",
+    "avoids vague generic summary"
+  ],
+  "bad_markers": [
+    "only mentions high-level stack",
+    "omits protected areas",
+    "gives no structure or boundaries"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "case_id": "integration_strategy_case_01",
+  "role": "integration-architect",
+  "input": {
+    "story": "Extend catalog flow in existing project",
+    "impact": "catalog routes and catalog controller affected; auth protected"
+  },
+  "expected_characteristics": [
+    "chooses incremental extension",
+    "names FE and BE integration points",
+    "avoids rewriting protected modules",
+    "states additive vs replace guidance"
+  ],
+  "bad_markers": [
+    "modify code as needed",
+    "missing integration points",
+    "protected modules not mentioned"
+  ]
+}

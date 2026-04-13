@@ -1,56 +1,37 @@
 from __future__ import annotations
 
-from agents.base import common_workflow_helpers, load_skill_resource, render_agent_context
+from agents.base import pm_resources, render_agent_context, safe_json
 from core.debug import trace_block
 from core.llm import call_role_llm
 
 
 def build_pm_prompt(task: str, agent_context: dict | None = None, story_packet: dict | None = None) -> str:
-    skill_overview = load_skill_resource('skill_overview.md')
+    project_mode = (story_packet or {}).get("project_mode", "new_project")
     return f"""
-You are a Senior Product Manager.
+You are the PM / BA role.
 
-Mission:
-- Convert the user task into a clear, structured PRD
-- Make it actionable for architect, developer, and QA
-- Use your own durable memory and operating principles when relevant
+Current task:
+- refine the current story into a clear, testable product specification for downstream roles
 
-Skill context:
-{skill_overview}
+Highest priority order:
+1. scope clarity
+2. testable acceptance criteria
+3. realistic V1 boundaries
 
-{common_workflow_helpers(story_packet)}
+Read and follow these resources:
+{pm_resources(story_packet, project_mode)}
 
 User task:
 {task}
 
 Story packet:
-{story_packet or {}}
+{safe_json(story_packet or {})}
 
 Your agent context:
 {render_agent_context(agent_context or {})}
 
-Output format:
-1. Product Goal
-2. Target Users
-3. Core Features
-4. User Flow
-5. Functional Requirements
-6. Non-Functional Requirements
-7. UI / UX Notes
-8. Technical Notes
-9. Acceptance Criteria
-10. Final Scope for V1
-
-Rules:
-- Be concrete and implementation-oriented
-- Do not ask questions
-- Assume reasonable defaults if details are missing
-- Keep scope realistic for the configured fullstack target, including frontend, backend, and database responsibilities when present
-- Do not generate code
-- Do not produce architecture or file structure
-- Acceptance criteria must be specific and testable
-
-Return only plain text.
+Return plain text only.
+Do not generate architecture or code.
 """.strip()
 
 

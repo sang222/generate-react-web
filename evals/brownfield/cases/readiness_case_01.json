@@ -1,0 +1,20 @@
+{
+  "case_id": "readiness_case_01",
+  "role": "brownfield-analyst",
+  "input": {
+    "summary_ready": true,
+    "impact_ready": true,
+    "strategy_ready": true,
+    "missing_information": []
+  },
+  "expected_characteristics": [
+    "ready is justified",
+    "missing_information empty when ready is true",
+    "known risks still surfaced"
+  ],
+  "bad_markers": [
+    "ready true with missing information",
+    "no risks mentioned",
+    "no approved strategy"
+  ]
+}

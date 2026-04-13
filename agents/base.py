@@ -7,6 +7,10 @@ from typing import Any, Dict, List
 WORKFLOW_SKILL_ROOT = Path(__file__).resolve().parent.parent / "skills" / "dev-team-workflow"
 RESOURCE_ROOT = WORKFLOW_SKILL_ROOT / "resources"
 HELPER_ROOT = RESOURCE_ROOT / "helpers"
+CONTRACT_ROOT = RESOURCE_ROOT / "contracts"
+CHECKLIST_ROOT = RESOURCE_ROOT / "checklists"
+EXAMPLE_ROOT = RESOURCE_ROOT / "examples"
+RULE_ROOT = RESOURCE_ROOT / "rules"
 
 
 def safe_json(data: Any) -> str:
@@ -16,7 +20,7 @@ def safe_json(data: Any) -> str:
         return "{}"
 
 
-def compact_history(history: List[Dict[str, Any]], limit: int = 6) -> str:
+def compact_history(history: List[Dict[str, Any]], limit: int = 4) -> str:
     if not history:
         return "[]"
     sliced = history[-limit:]
@@ -35,18 +39,35 @@ def compact_history(history: List[Dict[str, Any]], limit: int = 6) -> str:
     return safe_json(simplified)
 
 
-def load_skill_resource(name: str) -> str:
-    path = RESOURCE_ROOT / name
+def _load_from(root: Path, name: str) -> str:
+    path = root / name
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8").strip()
+
+
+def load_skill_resource(name: str) -> str:
+    return _load_from(RESOURCE_ROOT, name)
 
 
 def load_helper_resource(name: str) -> str:
-    path = HELPER_ROOT / name
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8").strip()
+    return _load_from(HELPER_ROOT, name)
+
+
+def load_contract(name: str) -> str:
+    return _load_from(CONTRACT_ROOT, name)
+
+
+def load_checklist(name: str) -> str:
+    return _load_from(CHECKLIST_ROOT, name)
+
+
+def load_example(name: str) -> str:
+    return _load_from(EXAMPLE_ROOT, name)
+
+
+def load_rule(name: str) -> str:
+    return _load_from(RULE_ROOT, name)
 
 
 def render_agent_context(agent_context: Dict[str, Any], max_memories: int = 5) -> str:
@@ -74,11 +95,11 @@ def render_agent_context(agent_context: Dict[str, Any], max_memories: int = 5) -
     shared_memory = str(shared_docs.get("MEMORY.md", "")).strip()
     if shared_memory:
         lines.append("Shared memory excerpt:")
-        lines.append(shared_memory[:700])
+        lines.append(shared_memory[:500])
     curated = sanctum.get("memory_markdown", "").strip()
     if curated:
         lines.append("Curated memory excerpt:")
-        lines.append(curated[:800])
+        lines.append(curated[:500])
     if memories:
         lines.append("Relevant memories:")
         for item in memories:
@@ -86,7 +107,7 @@ def render_agent_context(agent_context: Dict[str, Any], max_memories: int = 5) -
             content = str(item.get("content", "")).strip()
             score = item.get("score", "")
             if title or content:
-                lines.append(f"- [{score}] {title}: {content[:220]}")
+                lines.append(f"- [{score}] {title}: {content[:160]}")
     return "\n".join(lines).strip()
 
 
@@ -131,35 +152,120 @@ def common_workflow_helpers(story_packet: dict | None) -> str:
     return "\n\n".join([item for item in parts if item]).strip()
 
 
-def developer_resources(project_mode: str, execution_error: str, story_packet: dict | None = None) -> str:
-    resources = [
-        load_skill_resource("skill_overview.md"),
+def _brownfield_corpus(project_mode: str) -> list[str]:
+    if project_mode != "existing_project":
+        return []
+    return [
+        load_skill_resource("existing_project_rules.md"),
+        load_checklist("brownfield_readiness_checklist.md"),
+        load_checklist("qa_regression_checklist.md"),
+        load_example("existing_project_examples.md"),
+        load_example("review_examples.md"),
+        load_rule("change_request_rules.md"),
+    ]
+
+
+def _role_sizing_resource(role: str) -> str:
+    mapping = {
+        "pm": "role_sizing_pm.md",
+        "architect": "role_sizing_architect.md",
+        "developer": "role_sizing_developer.md",
+        "fe_developer": "role_sizing_developer.md",
+        "be_developer": "role_sizing_developer.md",
+        "qa": "role_sizing_qa.md",
+        "fe_reviewer": "role_sizing_qa.md",
+        "be_reviewer": "role_sizing_qa.md",
+        "integration_qa": "role_sizing_qa.md",
+        "lead": "role_sizing_lead.md",
+    }
+    return load_skill_resource(mapping.get(role, "")) if mapping.get(role) else ""
+
+
+def build_prompt_resources(
+    *,
+    role: str,
+    story_packet: dict | None,
+    project_mode: str,
+    extra_rules: list[str] | None = None,
+    contract: str = "",
+    checklist: str = "",
+    examples: str = "",
+) -> str:
+    parts = [
         common_workflow_helpers(story_packet),
+        _role_sizing_resource(role),
+        load_rule("gate_rules.md"),
+        *(extra_rules or []),
+        contract,
+        checklist,
+        examples,
+        *_brownfield_corpus(project_mode),
+    ]
+    return "\n\n".join(part for part in parts if part).strip()
+
+
+def pm_resources(story_packet: dict | None = None, project_mode: str = "new_project") -> str:
+    return build_prompt_resources(
+        role="pm",
+        story_packet=story_packet,
+        project_mode=project_mode,
+        contract=load_contract("pm_output_contract.md"),
+        checklist=load_checklist("pm_checklist.md"),
+        examples=load_example("pm_good_bad.md"),
+    )
+
+
+def architect_resources(story_packet: dict | None = None, project_mode: str = "new_project") -> str:
+    return build_prompt_resources(
+        role="architect",
+        story_packet=story_packet,
+        project_mode=project_mode,
+        extra_rules=[load_skill_resource("new_project_rules.md" if project_mode == "new_project" else "existing_project_rules.md")],
+        contract=load_contract("architect_output_contract.md"),
+        checklist=load_checklist("architect_checklist.md"),
+        examples=load_example("architect_good_bad.md"),
+    )
+
+
+def developer_resources(project_mode: str, execution_error: str, story_packet: dict | None = None, role: str = "developer") -> str:
+    extra_rules = [
         load_helper_resource("dependency_policy.md"),
-        load_skill_resource("developer_output_contract.md"),
         load_skill_resource("react_dependency_policy.md"),
         load_skill_resource("new_project_rules.md" if project_mode == "new_project" else "existing_project_rules.md"),
+        load_rule("change_request_rules.md"),
     ]
     if execution_error:
-        resources.append(load_skill_resource("build_repair_rules.md"))
-    return "\n\n".join([item for item in resources if item]).strip()
+        extra_rules.append(load_skill_resource("build_repair_rules.md"))
+    return build_prompt_resources(
+        role=role,
+        story_packet=story_packet,
+        project_mode=project_mode,
+        extra_rules=extra_rules,
+        contract=load_contract("developer_output_contract.md"),
+        checklist=load_checklist("developer_implementation_checklist.md"),
+        examples=load_example("developer_good_bad.md"),
+    )
 
 
-def qa_resources(story_packet: dict | None = None) -> str:
-    return "\n\n".join(
-        [
-            load_skill_resource("skill_overview.md"),
-            common_workflow_helpers(story_packet),
-            load_skill_resource("qa_review_lenses.md"),
-        ]
-    ).strip()
+def qa_resources(story_packet: dict | None = None, project_mode: str = "new_project", role: str = "qa") -> str:
+    return build_prompt_resources(
+        role=role,
+        story_packet=story_packet,
+        project_mode=project_mode,
+        extra_rules=[load_skill_resource("qa_review_lenses.md")],
+        contract=load_contract("qa_output_contract.md"),
+        checklist=load_checklist("reviewer_checklist.md"),
+        examples=load_example("qa_good_bad.md"),
+    )
 
 
-def lead_resources(story_packet: dict | None = None) -> str:
-    return "\n\n".join(
-        [
-            load_skill_resource("skill_overview.md"),
-            common_workflow_helpers(story_packet),
-            load_skill_resource("lead_gate_rules.md"),
-        ]
-    ).strip()
+def lead_resources(story_packet: dict | None = None, project_mode: str = "new_project") -> str:
+    return build_prompt_resources(
+        role="lead",
+        story_packet=story_packet,
+        project_mode=project_mode,
+        extra_rules=[load_skill_resource("lead_gate_rules.md")],
+        contract=load_contract("lead_output_contract.md"),
+        checklist=load_checklist("lead_decision_checklist.md"),
+        examples=load_example("lead_good_bad.md"),
+    )

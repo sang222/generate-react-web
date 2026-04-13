@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core.orchestrator import run_orchestrator
+from core.skill_candidates import VALID_DECISIONS
 
 
 def _load_task_from_file(path: str) -> str:
@@ -88,19 +88,52 @@ def _run_workflow_status(project_id: str) -> int:
         _sys.argv = old_argv
 
 
+def _run_skill_candidate_cli(*argv: str) -> int:
+    from scripts.skill_candidates import main as skill_candidates_main
+    import sys as _sys
+
+    old_argv = list(_sys.argv)
+    try:
+        _sys.argv = [old_argv[0], *argv]
+        return skill_candidates_main()
+    finally:
+        _sys.argv = old_argv
+
+
 def _interactive_collect(args: argparse.Namespace) -> argparse.Namespace:
     print("AI Dev Team Interactive Mode")
     print("Enter values step by step. Press Enter to accept a default.\n")
 
     action = _ask_choice(
         "Choose action",
-        ["run_workflow", "workflow_status", "setup_info"],
+        ["run_workflow", "workflow_status", "skill_candidates", "setup_info"],
         default="run_workflow",
     )
 
     if action == "workflow_status":
         args.workflow_status = True
         args.project_id = _ask("Project ID")
+        return args
+
+    if action == "skill_candidates":
+        subaction = _ask_choice(
+            "Skill candidate action",
+            ["list", "show", "review"],
+            default="list",
+        )
+        if subaction == "list":
+            args.list_skill_candidates = True
+            return args
+        if subaction == "show":
+            args.show_skill_candidate = _ask("Candidate ID")
+            return args
+        args.review_skill_candidate = _ask("Candidate ID")
+        args.skill_candidate_decision = _ask_choice(
+            "Decision",
+            list(VALID_DECISIONS),
+            default="reject",
+        )
+        args.skill_candidate_note = _ask("Review note", allow_empty=True)
         return args
 
     if action == "setup_info":
@@ -171,15 +204,31 @@ def main() -> int:
     parser.add_argument("--entry-skill", default="dev-team-workflow", choices=["dev-team-workflow", "dev-team-agent", "dev-team-setup"])
     parser.add_argument("--json", action="store_true", help="Print full result as JSON")
     parser.add_argument("--workflow-status", action="store_true", help="Show workflow status for a project and exit")
+    parser.add_argument("--list-skill-candidates", action="store_true", help="List skill candidates and exit")
+    parser.add_argument("--show-skill-candidate", help="Show one skill candidate by id and exit")
+    parser.add_argument("--review-skill-candidate", help="Review one skill candidate by id and exit")
+    parser.add_argument("--skill-candidate-decision", choices=list(VALID_DECISIONS), help="Decision for --review-skill-candidate")
+    parser.add_argument("--skill-candidate-note", default="", help="Optional note for skill candidate review")
     parser.add_argument("--save-result", help="Save full result JSON to a file")
     parser.add_argument("--interactive", action="store_true", help="Ask for options step by step")
+    parser.add_argument("--list-agents", action="store_true", help="List available agent files and exit")
+    parser.add_argument("--list-skills", action="store_true", help="List available skills and exit")
+    parser.add_argument("--run-skill-evals", action="store_true", help="List skill eval corpus cases and exit")
+    parser.add_argument("--show-skill-eval-case", help="Show one skill eval case by id and exit")
     args = parser.parse_args()
 
     no_direct_inputs = not any([
         args.task,
         args.task_file,
         args.workflow_status,
+        args.list_skill_candidates,
+        args.show_skill_candidate,
+        args.review_skill_candidate,
         args.save_result,
+        args.list_agents,
+        args.list_skills,
+        args.run_skill_evals,
+        args.show_skill_eval_case,
     ]) and args.project_id is None and args.epic_id is None and args.story_name is None and args.resume_from is None and args.depends_on is None
 
     if args.interactive or no_direct_inputs:
@@ -195,6 +244,46 @@ def main() -> int:
             return 1
         return _run_workflow_status(args.project_id)
 
+    if args.list_skill_candidates:
+        return _run_skill_candidate_cli('--list')
+
+    if args.show_skill_candidate:
+        return _run_skill_candidate_cli('--show', args.show_skill_candidate)
+
+    if args.review_skill_candidate:
+        if not args.skill_candidate_decision:
+            print('--review-skill-candidate requires --skill-candidate-decision', file=sys.stderr)
+            return 2
+        cli_args = [
+            '--review', args.review_skill_candidate,
+            '--decision', args.skill_candidate_decision,
+        ]
+        if args.skill_candidate_note:
+            cli_args.extend(['--note', args.skill_candidate_note])
+        return _run_skill_candidate_cli(*cli_args)
+
+
+    if args.list_agents:
+        from scripts.list_agents import main as _m
+        return _m()
+
+    if args.list_skills:
+        from scripts.list_skills import main as _m
+        return _m()
+
+    if args.run_skill_evals or args.show_skill_eval_case:
+        from scripts.run_skill_eval import main as _m
+        import sys as _sys
+        old_argv = list(_sys.argv)
+        try:
+            argv = [old_argv[0], '--suite', 'brownfield']
+            if args.show_skill_eval_case:
+                argv.extend(['--show-case', args.show_skill_eval_case])
+            _sys.argv = argv
+            return _m()
+        finally:
+            _sys.argv = old_argv
+
     if args.entry_skill == 'dev-team-setup':
         print('Setup skill is file/config based. Inspect _bmad/config.yaml and _bmad/module-help.csv.')
         return 0
@@ -204,6 +293,8 @@ def main() -> int:
         return 1
 
     try:
+        from core.orchestrator import run_orchestrator
+
         result = run_orchestrator(
             task,
             project_mode=args.project_mode,

@@ -82,3 +82,80 @@ Frontend validation runs `npm install` and `npm run build` inside `frontend/`. B
 - Added `BROWNFIELD_READINESS_GATE` before implementation for `existing_project` stories
 - Existing-project story packets now include allowed / forbidden change scope and readiness artifact paths
 - Workflow status now surfaces brownfield readiness and affected-module counts
+
+
+## Skill Candidate Store and CLI Review Flow
+
+This project now includes a separate skill-promotion path beside story delivery.
+
+Main locations:
+- `skill_candidates/<candidate_id>/`
+- `skill_registry/promotion_log.json`
+- `docs/TDD_skill_promotion_workflow.md`
+
+CLI:
+```bash
+python main.py --list-skill-candidates
+python main.py --show-skill-candidate cand_001
+python main.py --review-skill-candidate cand_001 --skill-candidate-decision promote_to_core
+```
+
+Purpose:
+- inspect AI-proposed skill changes
+- review diffs on CLI
+- approve, reject, or request revision
+- keep delivery workflow separate from skill evolution
+
+## v19 improvements
+
+### 1. Skill packs are first-class citizens
+Added dedicated brownfield skill packs:
+- `skills/brownfield-analyst/`
+- `skills/change-impact-reviewer/`
+- `skills/integration-architect/`
+- `skills/safe-implementation-lane/`
+
+Each pack includes:
+- `SKILL.md`
+- `contracts.md`
+- `checklist.md`
+- `examples_good_bad.md`
+- `escalation_rules.md`
+
+### 2. Operator surface / command aliases
+Added operator-facing scripts:
+- `scripts/create_prd.py`
+- `scripts/design_story.py`
+- `scripts/run_story.py`
+- `scripts/resume_story.py`
+- `scripts/list_agents.py`
+- `scripts/list_skills.py`
+- `scripts/run_skill_eval.py`
+
+Also added docs:
+- `docs/operator_surface.md`
+- `docs/when_to_use_roles_and_gates.md`
+
+Main CLI now supports:
+- `--list-agents`
+- `--list-skills`
+- `--run-skill-evals`
+- `--show-skill-eval-case <case_id>`
+
+### 3. Brownfield skill eval corpus
+Added a starter eval corpus under:
+- `evals/brownfield/`
+
+Includes:
+- artifact-focused cases
+- role scorecards
+- bad markers for brownfield reasoning quality
+
+
+## v20 Prompt Architecture Refactor
+
+- Slimmed role prompts so each agent prompt now focuses on role identity, current task, and priority order.
+- Moved output contracts into `skills/dev-team-workflow/resources/contracts/`.
+- Moved role checklists into `skills/dev-team-workflow/resources/checklists/`.
+- Moved good/bad examples into `skills/dev-team-workflow/resources/examples/`.
+- Added shared rules under `skills/dev-team-workflow/resources/rules/` for gate and change-request behavior.
