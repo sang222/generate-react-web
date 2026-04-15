@@ -11,7 +11,10 @@ def apply_runtime_override(context: Dict[str, Any], candidate: Dict[str, Any], s
     blocked_reason = ""
 
     if scope not in {"runtime_override", "project_only"}:
-        blocked_reason = "BLOCKED_RISK_TOO_HIGH" if scope == "core_candidate_only" else "BLOCKED_REVIEWER_REJECTED"
+        blocked_reason = {
+            "core_candidate_only": "BLOCKED_RISK_TOO_HIGH",
+            "reject": "BLOCKED_REVIEWER_REJECTED",
+        }.get(scope, "BLOCKED_REVIEWER_REJECTED")
         return {
             "apply_scope": scope,
             "auto_applied": False,

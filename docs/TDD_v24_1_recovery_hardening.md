@@ -59,3 +59,9 @@ Only narrow runtime overrides are auto-applied:
 - `forbidden_change_scope_append`
 
 Core files and semantics are not auto-mutated in autonomous mode.
+
+
+## v24.2 follow-up
+
+- reviewer fallback must default to reject, never silently approve by inherited scope
+- CLI `--show-recovery-history` must be wired end-to-end and treated as merge-blocking verification

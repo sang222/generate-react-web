@@ -101,7 +101,7 @@ def _run_skill_candidate_cli(*argv: str) -> int:
 
 
 def _interactive_collect(args: argparse.Namespace) -> argparse.Namespace:
-    action = _ask_choice('Choose action', ['run_workflow', 'workflow_status', 'skill_candidates', 'setup_info'], default='run_workflow')
+    action = _ask_choice('Choose action', ['run_workflow', 'workflow_status', 'skill_candidates', 'show_recovery_history', 'setup_info'], default='run_workflow')
 
     if action == 'workflow_status':
         args.workflow_status = True
@@ -119,6 +119,10 @@ def _interactive_collect(args: argparse.Namespace) -> argparse.Namespace:
         args.review_skill_candidate = _ask('Candidate ID')
         args.skill_candidate_decision = _ask_choice('Decision', list(VALID_DECISIONS), default='reject')
         args.skill_candidate_note = _ask('Review note', allow_empty=True)
+        return args
+
+    if action == 'show_recovery_history':
+        args.show_recovery_history = True
         return args
 
     if action == 'setup_info':
@@ -177,7 +181,7 @@ def main() -> int:
     parser.add_argument('--show-recovery-history', action='store_true', help='Show adaptive recovery history and exit')
     args = parser.parse_args()
 
-    no_direct_inputs = not any([args.task, args.task_file, args.workflow_status, args.list_skill_candidates, args.show_skill_candidate, args.review_skill_candidate, args.save_result, args.list_agents, args.list_skills, args.show_skill, args.run_skill_evals, args.show_skill_eval_case]) and args.project_id is None and args.epic_id is None and args.story_name is None and args.resume_from is None and args.depends_on is None
+    no_direct_inputs = not any([args.task, args.task_file, args.workflow_status, args.list_skill_candidates, args.show_skill_candidate, args.review_skill_candidate, args.save_result, args.list_agents, args.list_skills, args.show_skill, args.run_skill_evals, args.show_skill_eval_case, args.show_recovery_history]) and args.project_id is None and args.epic_id is None and args.story_name is None and args.resume_from is None and args.depends_on is None
     if args.interactive or no_direct_inputs:
         args = _interactive_collect(args)
 
@@ -221,6 +225,17 @@ def main() -> int:
             return _m()
         finally:
             _sys.argv = old_argv
+
+    if args.show_recovery_history:
+        from scripts.show_recovery_history import main as _m
+        import sys as _sys
+        old_argv = list(_sys.argv)
+        try:
+            _sys.argv = [old_argv[0]]
+            return _m()
+        finally:
+            _sys.argv = old_argv
+
     if args.run_skill_evals or args.show_skill_eval_case:
         from scripts.run_skill_eval import main as _m
         import sys as _sys

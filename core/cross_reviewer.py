@@ -67,25 +67,22 @@ def cross_review_candidate(context: Dict[str, Any], candidate: Dict[str, Any], r
     if review:
         return review
 
-    default_scope = risk_assessment.get("apply_scope", "reject")
-    review_result = {
-        "runtime_override": "approved_runtime_override",
-        "project_only": "approved_project_only",
-        "core_candidate_only": "core_candidate_only",
-        "reject": "reject",
-    }.get(default_scope, "reject")
     return {
-        "review_result": review_result,
-        "risk_level": risk_assessment.get("risk_level", "high"),
-        "apply_scope": default_scope,
+        "review_result": "reject",
+        "risk_level": "high",
+        "apply_scope": "reject",
         "confidence": "low",
-        "issues": ["Fallback reviewer used due to invalid reviewer output."],
-        "reasoning_summary": "Fallback reviewer followed deterministic risk policy.",
+        "issues": [
+            "Reviewer returned invalid JSON.",
+            "Fallback path is conservative and blocks auto-apply.",
+        ],
+        "reasoning_summary": "Cross review fallback rejected the candidate because reviewer output was invalid.",
         "rubric_scores": {
-            "scope_safety": 1,
-            "contract_safety": 1,
-            "brownfield_boundary_safety": 1,
-            "regression_likelihood": 1,
-            "patch_target_correctness": 1,
+            "scope_safety": 0,
+            "contract_safety": 0,
+            "brownfield_boundary_safety": 0,
+            "regression_likelihood": 0,
+            "patch_target_correctness": 0,
         },
+        "fallback_reason_code": "BLOCKED_REVIEWER_INVALID",
     }

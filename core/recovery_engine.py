@@ -145,6 +145,7 @@ def run_recovery_engine(context: Dict[str, Any], root: str | Path = '.') -> Dict
         'project_id': context.get('project_id',''),
         'story_id': context.get('story_id',''),
         'reviewer_verdict': review.get('review_result','reject'),
+        'fallback_reason_code': review.get('fallback_reason_code',''),
         'apply_scope': review.get('apply_scope', risk.get('apply_scope','reject')),
         'risk_level': review.get('risk_level', risk.get('risk_level','high')),
         'reasoning_summary': review.get('reasoning_summary',''),
@@ -158,7 +159,7 @@ def run_recovery_engine(context: Dict[str, Any], root: str | Path = '.') -> Dict
         'apply_scope': applied.get('apply_scope','reject'),
         'override_result': 'applied' if applied.get('auto_applied') else 'not_applied',
         'rerun_allowed': bool(applied.get('rerun_allowed', False)),
-        'blocked_reason': applied.get('blocked_reason',''),
+        'blocked_reason': applied.get('blocked_reason','') or review.get('fallback_reason_code',''),
     }, root)
 
     context['adaptive_recovery_triggered'] = True

@@ -199,3 +199,10 @@ Includes:
 - deterministic risk classifier for recovery candidates
 - recovery engine split out from the orchestrator loop
 - explicit blocked reason codes for recovery outcomes
+
+
+## v24.2 hardening
+
+- reviewer fallback is now conservative: invalid reviewer output results in `reject` and no auto-apply
+- `python main.py --show-recovery-history` is wired end-to-end
+- recovery history records reviewer fallback reason codes for audit
