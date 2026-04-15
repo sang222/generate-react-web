@@ -4,10 +4,13 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List
 
 from core.config import ROLE_MODEL_MAP
-from core.db import get_runs_collection
+
+RUNS_DIR = Path('.runs')
+RUNS_INDEX = RUNS_DIR / 'index.jsonl'
 
 
 def utc_now_iso() -> str:
@@ -24,6 +27,21 @@ def _safe_list(value: Any) -> List[Any]:
 
 def _safe_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _ensure_runs_dir() -> None:
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _run_path(run_id: str) -> Path:
+    return RUNS_DIR / f"{run_id}.json"
+
+
+def _load_run(path: Path) -> Dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
 
 
 def build_run_summary(result: Dict[str, Any]) -> str:
@@ -88,6 +106,7 @@ def build_run_document(result: Dict[str, Any]) -> Dict[str, Any]:
             "functional_bugs": _safe_list(qa_detail.get("functional_bugs")),
             "prd_gaps": _safe_list(qa_detail.get("prd_gaps")),
             "ui_gaps": _safe_list(qa_detail.get("ui_gaps")),
+            "regression_bugs": _safe_list(qa_detail.get("regression_bugs")),
         },
         "lead_summary": lead_summary,
         "history": _safe_list(result.get("history")),
@@ -107,28 +126,89 @@ def build_run_document(result: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def save_run(result: Dict[str, Any]) -> str:
-    collection = get_runs_collection()
+    _ensure_runs_dir()
     doc = build_run_document(result)
-    collection.replace_one({"run_id": doc["run_id"]}, doc, upsert=True)
-    return doc["run_id"]
+    run_id = doc['run_id']
+    _run_path(run_id).write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding='utf-8')
+
+    index = []
+    if RUNS_INDEX.exists():
+        for line in RUNS_INDEX.read_text(encoding='utf-8').splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if rec.get('run_id') != run_id:
+                index.append(rec)
+    index.insert(0, {
+        'run_id': run_id,
+        'created_at': doc.get('created_at', ''),
+        'project_id': doc.get('project_id', ''),
+        'epic_id': doc.get('epic_id', ''),
+        'story_id': doc.get('story_id', ''),
+        'task': doc.get('task', ''),
+        'final_decision': doc.get('final_decision', ''),
+        'release_status': doc.get('release_status', ''),
+        'severity': doc.get('severity', ''),
+        'summary': doc.get('summary', ''),
+    })
+    RUNS_INDEX.write_text('\n'.join(json.dumps(item, ensure_ascii=False) for item in index) + ('\n' if index else ''), encoding='utf-8')
+    return run_id
 
 
 def get_recent_runs(limit: int = 20) -> List[Dict[str, Any]]:
-    cursor = get_runs_collection().find({}, {"_id": 0}).sort("created_at", -1).limit(limit)
-    return list(cursor)
+    _ensure_runs_dir()
+    records: List[Dict[str, Any]] = []
+    if RUNS_INDEX.exists():
+        for line in RUNS_INDEX.read_text(encoding='utf-8').splitlines():
+            if not line.strip():
+                continue
+            try:
+                index_item = json.loads(line)
+            except Exception:
+                continue
+            run = _load_run(_run_path(index_item.get('run_id', '')))
+            if run:
+                records.append(run)
+            if len(records) >= limit:
+                break
+    if records:
+        return records
+    files = sorted(RUNS_DIR.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+    return [_load_run(p) for p in files[:limit] if _load_run(p)]
+
+
+def find_run_by_id(run_id: str) -> Dict[str, Any] | None:
+    path = _run_path(run_id)
+    if not path.exists():
+        return None
+    run = _load_run(path)
+    return run or None
+
+
+def clear_runs() -> int:
+    _ensure_runs_dir()
+    count = 0
+    for path in RUNS_DIR.glob('*.json'):
+        path.unlink(missing_ok=True)
+        count += 1
+    RUNS_INDEX.unlink(missing_ok=True)
+    return count
 
 
 def find_runs_by_task(task: str, limit: int = 10) -> List[Dict[str, Any]]:
-    task = _normalize_text(task)
+    task = _normalize_text(task).lower()
     if not task:
         return []
-    cursor = (
-        get_runs_collection()
-        .find({"task": {"$regex": re.escape(task), "$options": "i"}}, {"_id": 0})
-        .sort("created_at", -1)
-        .limit(limit)
-    )
-    return list(cursor)
+    matched: List[Dict[str, Any]] = []
+    for run in get_recent_runs(limit=200):
+        if task in _normalize_text(run.get('task', '')).lower():
+            matched.append(run)
+        if len(matched) >= limit:
+            break
+    return matched
 
 
 def summarize_runs_for_debug(task: str, limit: int = 5) -> str:

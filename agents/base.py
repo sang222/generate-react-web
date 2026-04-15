@@ -11,6 +11,7 @@ CONTRACT_ROOT = RESOURCE_ROOT / "contracts"
 CHECKLIST_ROOT = RESOURCE_ROOT / "checklists"
 EXAMPLE_ROOT = RESOURCE_ROOT / "examples"
 RULE_ROOT = RESOURCE_ROOT / "rules"
+SKILL_ROOT = Path(__file__).resolve().parent.parent / "skills"
 
 
 def safe_json(data: Any) -> str:
@@ -68,6 +69,24 @@ def load_example(name: str) -> str:
 
 def load_rule(name: str) -> str:
     return _load_from(RULE_ROOT, name)
+
+
+def load_skill_pack_doc(skill_name: str, filename: str) -> str:
+    return _load_from(SKILL_ROOT / skill_name, filename)
+
+
+def load_skill_pack_bundle(skill_name: str, include_cases: bool = False) -> str:
+    parts = [
+        load_skill_pack_doc(skill_name, "SKILL.md"),
+        load_skill_pack_doc(skill_name, "contracts.md"),
+        load_skill_pack_doc(skill_name, "output_artifact.md"),
+        load_skill_pack_doc(skill_name, "when_to_use.md"),
+        load_skill_pack_doc(skill_name, "checklist.md"),
+        load_skill_pack_doc(skill_name, "escalation_rules.md"),
+    ]
+    if include_cases:
+        parts.append(load_skill_pack_doc(skill_name, "examples_good_bad.md"))
+    return "\n\n".join(part for part in parts if part).strip()
 
 
 def render_agent_context(agent_context: Dict[str, Any], max_memories: int = 5) -> str:
@@ -152,17 +171,30 @@ def common_workflow_helpers(story_packet: dict | None) -> str:
     return "\n\n".join([item for item in parts if item]).strip()
 
 
-def _brownfield_corpus(project_mode: str) -> list[str]:
+def _brownfield_corpus(project_mode: str, role: str) -> list[str]:
     if project_mode != "existing_project":
         return []
-    return [
+    pack_map = {
+        "pm": ["brownfield-analyst", "change-impact-reviewer"],
+        "architect": ["integration-architect", "change-impact-reviewer"],
+        "developer": ["safe-implementation-lane"],
+        "fe_developer": ["safe-implementation-lane"],
+        "be_developer": ["safe-implementation-lane"],
+        "qa": ["change-impact-reviewer", "safe-implementation-lane"],
+        "fe_reviewer": ["change-impact-reviewer", "safe-implementation-lane"],
+        "be_reviewer": ["change-impact-reviewer", "safe-implementation-lane"],
+        "integration_qa": ["integration-architect", "safe-implementation-lane"],
+        "lead": ["change-impact-reviewer", "integration-architect"],
+    }
+    parts = [
         load_skill_resource("existing_project_rules.md"),
         load_checklist("brownfield_readiness_checklist.md"),
         load_checklist("qa_regression_checklist.md"),
-        load_example("existing_project_examples.md"),
-        load_example("review_examples.md"),
         load_rule("change_request_rules.md"),
     ]
+    for skill_name in pack_map.get(role, []):
+        parts.append(load_skill_pack_bundle(skill_name, include_cases=True))
+    return [part for part in parts if part]
 
 
 def _role_sizing_resource(role: str) -> str:
@@ -199,7 +231,7 @@ def build_prompt_resources(
         contract,
         checklist,
         examples,
-        *_brownfield_corpus(project_mode),
+        *_brownfield_corpus(project_mode, role),
     ]
     return "\n\n".join(part for part in parts if part).strip()
 

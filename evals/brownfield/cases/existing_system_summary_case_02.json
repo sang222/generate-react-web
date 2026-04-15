@@ -1,0 +1,18 @@
+{
+  "case_id": "existing_system_summary_case_02",
+  "role": "brownfield-analyst",
+  "input": {
+    "story": "Add admin inventory page without breaking customer routes",
+    "baseline_summary": "Customer shell and auth filter are shared; admin area is separate but uses shared API gateway"
+  },
+  "expected_characteristics": [
+    "separates customer and admin boundaries",
+    "marks auth filter and API gateway as protected or fragile",
+    "describes where the new admin feature should attach"
+  ],
+  "bad_markers": [
+    "treats customer and admin areas as one flat module",
+    "omits shared auth or gateway boundary",
+    "gives no attachment point for the new story"
+  ]
+}

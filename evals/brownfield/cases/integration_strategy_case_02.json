@@ -1,0 +1,18 @@
+{
+  "case_id": "integration_strategy_case_02",
+  "role": "integration-architect",
+  "input": {
+    "story": "Add inventory page using current admin shell",
+    "impact": "admin routes and inventory package affected; shared auth protected"
+  },
+  "expected_characteristics": [
+    "keeps admin shell intact",
+    "names route insertion point and backend package boundary",
+    "states additive extension over rewrite"
+  ],
+  "bad_markers": [
+    "rewrite admin shell",
+    "missing route insertion point",
+    "protected auth not mentioned"
+  ]
+}

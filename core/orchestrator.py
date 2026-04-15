@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 from agents.architect import run_architect
 from agents.pm import run_pm
 from core.change_request import create_change_request
+from core.adaptive_recovery import run_adaptive_recovery, should_trigger_adaptive_recovery
 from core.config import get_system_target, load_module_config
 from core.executor import run_system_check
 from core.file_manager import (
@@ -137,6 +138,11 @@ def _base_context(
         "next_story": "",
         "delivery_index": delivery_index,
         "system_target": SYSTEM_TARGET,
+        "adaptive_recovery_triggered": False,
+        "adaptive_recovery_candidate_id": "",
+        "adaptive_recovery_scope": "",
+        "runtime_override_applied": False,
+        "skill_candidate_ids": [],
     }
 
 
@@ -407,6 +413,16 @@ def _finalize_loop(context: Dict[str, Any], memory_manager: AgentMemoryManager) 
     return False
 
 
+
+
+def _maybe_run_adaptive_recovery(context: Dict[str, Any]) -> None:
+    if not should_trigger_adaptive_recovery(context):
+        return
+    recovery = run_adaptive_recovery(context)
+    context["adaptive_recovery"] = recovery
+    scope = recovery.get("apply_record", {}).get("apply_scope", "") if isinstance(recovery, dict) else ""
+    write_workflow_status(context, f"Adaptive recovery generated candidate {recovery.get('candidate_id', '')} with scope {scope}.")
+
 def run_orchestrator(task: str, project_mode: str = "new_project", project_id: str | None = None, epic_id: str | None = None, story_id: str | None = None, story_name: str | None = None, resume_from: str | None = None, depends_on: List[str] | None = None) -> Dict[str, Any]:
     memory_manager = AgentMemoryManager()
     memory_manager.ensure_bootstrap()
@@ -449,6 +465,7 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
         _run_reviews(context, memory_manager, ownership_map)
         if _finalize_loop(context, memory_manager):
             break
+        _maybe_run_adaptive_recovery(context)
 
     context["project_tree"] = summarize_project_tree()
     if context["release_status"] == "DONE":
@@ -458,7 +475,10 @@ def run_orchestrator(task: str, project_mode: str = "new_project", project_id: s
         context["next_story"] = context.get("lead_summary", {}).get("improvement", "")
         context["final_decision"] = "DELIVER_STORY"
     else:
-        context["final_decision"] = context["release_status"]
+        if context.get("adaptive_recovery_triggered"):
+            context["final_decision"] = "BLOCKED" if context.get("execution_error") else context["release_status"]
+        else:
+            context["final_decision"] = context["release_status"]
 
     write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
     save_run(context)

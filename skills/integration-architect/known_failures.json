@@ -1,0 +1,14 @@
+[
+  {
+    "failure_id": "strategy_001",
+    "pattern": "modify_as_needed",
+    "description": "Strategy only says to modify the existing code as needed.",
+    "impact": "implementation becomes unsafe and under-constrained"
+  },
+  {
+    "failure_id": "strategy_002",
+    "pattern": "missing_integration_points",
+    "description": "No FE/BE insertion points are named.",
+    "impact": "developers may patch the wrong boundary"
+  }
+]

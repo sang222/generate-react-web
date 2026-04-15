@@ -15,3 +15,12 @@
 - Research/spec/design gates for drafting and readiness
 - Brownfield readiness gate for existing_project before implementation
 - Implementation/release gates for deliverable safety
+
+## Skill inspection
+
+```bash
+python main.py --list-skills
+python main.py --show-skill brownfield-analyst
+```
+
+Use this to inspect a skill pack before running or reviewing a brownfield story.

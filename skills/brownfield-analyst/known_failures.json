@@ -1,0 +1,14 @@
+[
+  {
+    "failure_id": "brownfield_summary_001",
+    "pattern": "generic_summary",
+    "description": "Summary only names React and Spring Boot without route, module, or package boundaries.",
+    "impact": "downstream change impact review becomes too vague"
+  },
+  {
+    "failure_id": "brownfield_summary_002",
+    "pattern": "protected_scope_omitted",
+    "description": "Summary misses shared layout or auth module as protected area.",
+    "impact": "unsafe implementation may modify critical baseline areas"
+  }
+]

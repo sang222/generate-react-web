@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-
-TRACE_AGENTS = os.getenv("TRACE_AGENTS", "1") == "1"
-TRACE_MAX_CHARS = int(os.getenv("TRACE_MAX_CHARS", "12000"))
+TRACE_AGENTS = os.getenv("TRACE_AGENTS", "0") == "1"
+TRACE_MAX_CHARS = int(os.getenv("TRACE_MAX_CHARS", "4000"))
+QA_ONLY_CLI = os.getenv("QA_ONLY_CLI", "1") == "1"
 
 
 def _now() -> str:
@@ -20,9 +20,8 @@ def _truncate(text: str, max_chars: int = TRACE_MAX_CHARS) -> str:
 
 
 def trace_block(title: str, content: str) -> None:
-    if not TRACE_AGENTS:
+    if not TRACE_AGENTS or QA_ONLY_CLI:
         return
-
     print(f"\n[{_now()}] {'=' * 20} {title} {'=' * 20}", flush=True)
     print(_truncate(content), flush=True)
     print(f"[{_now()}] {'=' * 20} END {title} {'=' * 20}\n", flush=True)

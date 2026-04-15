@@ -1,0 +1,18 @@
+{
+  "case_id": "change_impact_case_02",
+  "role": "change-impact-reviewer",
+  "input": {
+    "story": "Add inventory dashboard endpoint and page",
+    "baseline_summary": "Admin dashboard exists; shared auth and reporting packages are protected"
+  },
+  "expected_characteristics": [
+    "lists direct and indirect affected modules",
+    "keeps auth and reporting packages protected",
+    "assigns medium or high risk when shared reporting contracts are touched"
+  ],
+  "bad_markers": [
+    "protected modules omitted",
+    "risk stays low despite shared contracts",
+    "safe change strategy missing"
+  ]
+}

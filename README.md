@@ -159,3 +159,37 @@ Includes:
 - Moved role checklists into `skills/dev-team-workflow/resources/checklists/`.
 - Moved good/bad examples into `skills/dev-team-workflow/resources/examples/`.
 - Added shared rules under `skills/dev-team-workflow/resources/rules/` for gate and change-request behavior.
+
+## v21 Skill-Centric Brownfield Improvements
+
+- Made brownfield skill packs narrower and more data-backed.
+- Added per-skill docs for:
+  - `when_to_use.md`
+  - `output_artifact.md`
+  - `known_failures.json`
+  - `cases/good_case_01.md`
+  - `cases/bad_case_01.md`
+- Brownfield prompt resources now load role-relevant skill packs instead of relying only on generic brownfield rules.
+- Added `python main.py --show-skill <skill_name>` for operator-friendly skill inspection.
+- Expanded the brownfield eval corpus with additional artifact and implementation cases.
+
+
+## v22 changes
+
+- MongoDB removed. Run history and agent memory now use local file-based storage.
+- CLI logging slimmed to question/answer style for interactive use.
+- Technical trace output is suppressed by default; set `TRACE_AGENTS=1` and `QA_ONLY_CLI=0` to re-enable verbose traces.
+
+## v23 additions
+- Added human-readable Gate Question Sets under `skills/dev-team-workflow/resources/gates/`
+- Added TDD for gate questions at `docs/TDD_v23_gate_question_sets.md`
+- Gate resources now cover Research, Specification, Design, Brownfield Readiness, Implementation, and Release
+
+
+## v24 additions
+
+- Added **Adaptive Recovery Mode** after 2 failed attempts
+- Added **Recovery Meta-Agent** and **Skill Reviewer** routing
+- Added autonomous **cross review + auto-apply policy** for low/medium-risk runtime overrides
+- Added audit/history files under `skill_history/`
+- Added `python main.py --show-recovery-history`

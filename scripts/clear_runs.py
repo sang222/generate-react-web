@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from core.db import get_runs_collection
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from core.memory import clear_runs
 
 
 def main() -> None:
-    result = get_runs_collection().delete_many({})
-    print(f"Deleted {result.deleted_count} runs.")
+    deleted_count = clear_runs()
+    print(f'Deleted {deleted_count} runs.')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

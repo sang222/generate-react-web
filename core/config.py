@@ -36,6 +36,8 @@ def _get_role_model_map() -> Dict[str, str]:
         'be_reviewer': os.getenv('BE_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
         'integration_qa': os.getenv('INTEGRATION_QA_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
         'lead': os.getenv('LEAD_MODEL', 'llama3.2:3b'),
+        'recovery_meta': os.getenv('RECOVERY_META_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
+        'skill_reviewer': os.getenv('SKILL_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
     }
 
 

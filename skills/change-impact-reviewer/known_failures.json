@@ -1,0 +1,14 @@
+[
+  {
+    "failure_id": "impact_001",
+    "pattern": "empty_affected_scope",
+    "description": "Affected modules list is empty despite a non-trivial story.",
+    "impact": "implementation lane has no safe boundary"
+  },
+  {
+    "failure_id": "impact_002",
+    "pattern": "risk_always_low",
+    "description": "Regression risk defaults to low without evidence.",
+    "impact": "unsafe changes may bypass stronger review"
+  }
+]

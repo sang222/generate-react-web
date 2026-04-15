@@ -1,0 +1,14 @@
+[
+  {
+    "failure_id": "safe_impl_001",
+    "pattern": "baseline_regeneration",
+    "description": "Developer regenerates large parts of the baseline instead of patching in place.",
+    "impact": "high regression risk and unsafe brownfield delivery"
+  },
+  {
+    "failure_id": "safe_impl_002",
+    "pattern": "protected_module_touch",
+    "description": "Implementation changes protected auth/layout/order modules without CR.",
+    "impact": "story should block instead of continuing"
+  }
+]
