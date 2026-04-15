@@ -48,6 +48,7 @@ def write_workflow_status(context: Dict[str, Any], recommendation: str = "") -> 
         f"adaptive_recovery_triggered: {str(bool(context.get('adaptive_recovery_triggered'))).lower()}",
         f"adaptive_recovery_candidate_id: {context.get('adaptive_recovery_candidate_id','')}",
         f"adaptive_recovery_scope: {context.get('adaptive_recovery_scope','')}",
+        f"adaptive_recovery_block_reason: {context.get('adaptive_recovery_block_reason','')}",
     ]
     path.write_text("\n".join(lines) + "\n", encoding='utf-8')
 
@@ -105,6 +106,7 @@ def build_planned_changes(context: Dict[str, Any], lane: str = "integration") ->
         "adaptive_recovery_candidate_id": context.get("adaptive_recovery_candidate_id", ""),
         "adaptive_recovery_scope": context.get("adaptive_recovery_scope", ""),
         "runtime_override_applied": context.get("runtime_override_applied", False),
+        "adaptive_recovery_block_reason": context.get("adaptive_recovery_block_reason", ""),
         "skill_candidate_ids": context.get("skill_candidate_ids", []),
     }
 
@@ -174,6 +176,7 @@ def write_run_state(context: Dict[str, Any], state_dir: Path, run_state_path: Pa
         "adaptive_recovery_candidate_id": context.get("adaptive_recovery_candidate_id", ""),
         "adaptive_recovery_scope": context.get("adaptive_recovery_scope", ""),
         "runtime_override_applied": context.get("runtime_override_applied", False),
+        "adaptive_recovery_block_reason": context.get("adaptive_recovery_block_reason", ""),
         "skill_candidate_ids": context.get("skill_candidate_ids", []),
     }
     run_state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")

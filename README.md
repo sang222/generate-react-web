@@ -193,3 +193,9 @@ Includes:
 - Added autonomous **cross review + auto-apply policy** for low/medium-risk runtime overrides
 - Added audit/history files under `skill_history/`
 - Added `python main.py --show-recovery-history`
+
+## v24.1 additions
+- hardened adaptive recovery with an independent skill reviewer rubric
+- deterministic risk classifier for recovery candidates
+- recovery engine split out from the orchestrator loop
+- explicit blocked reason codes for recovery outcomes
