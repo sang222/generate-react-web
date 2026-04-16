@@ -27,9 +27,9 @@ Configured in `.env`:
 ## Useful commands
 ```bash
 cp .env.example .env
-python main.py --project-id shop_web --epic-id SHOP-EPIC-1 --story-id SHOP-101 --story-name "App shell and routing foundation" "Build the first story for an ordering website"
-python main.py --project-id shop_web --epic-id SHOP-EPIC-1 --story-id SHOP-102 --story-name "Catalog and product detail" "Build the next story on top of the delivered baseline"
-python main.py --project-id shop_web --epic-id SHOP-EPIC-1 --story-id SHOP-102 --resume-from deliveries/shop_web/SHOP-101/source "Continue from story SHOP-101 and add catalog pages"
+python3 main.py --project-id shop_web --epic-id SHOP-EPIC-1 --story-id SHOP-101 --story-name "App shell and routing foundation" "Build the first story for an ordering website"
+python3 main.py --project-id shop_web --epic-id SHOP-EPIC-1 --story-id SHOP-102 --story-name "Catalog and product detail" "Build the next story on top of the delivered baseline"
+python3 main.py --project-id shop_web --epic-id SHOP-EPIC-1 --story-id SHOP-102 --resume-from deliveries/shop_web/SHOP-101/source "Continue from story SHOP-101 and add catalog pages"
 ```
 
 
@@ -68,7 +68,7 @@ Frontend validation runs `npm install` and `npm run build` inside `frontend/`. B
 ## v15 additions
 - Helper pattern under `skills/dev-team-workflow/resources/helpers/` to reduce repeated prompt policy text
 - `workflow_status.yaml` per project for quick operator-readable status
-- `scripts/workflow_status.py` and `python main.py --workflow-status --project-id ...`
+- `scripts/workflow_status.py` and `python3 main.py --workflow-status --project-id ...`
 - Right-sizing via project levels (`project_level` and `delivery_profile`) injected into each story packet
 - Lane activation now respects story size and backend need instead of always forcing FE/BE together
 
@@ -95,9 +95,9 @@ Main locations:
 
 CLI:
 ```bash
-python main.py --list-skill-candidates
-python main.py --show-skill-candidate cand_001
-python main.py --review-skill-candidate cand_001 --skill-candidate-decision promote_to_core
+python3 main.py --list-skill-candidates
+python3 main.py --show-skill-candidate cand_001
+python3 main.py --review-skill-candidate cand_001 --skill-candidate-decision promote_to_core
 ```
 
 Purpose:
@@ -170,7 +170,7 @@ Includes:
   - `cases/good_case_01.md`
   - `cases/bad_case_01.md`
 - Brownfield prompt resources now load role-relevant skill packs instead of relying only on generic brownfield rules.
-- Added `python main.py --show-skill <skill_name>` for operator-friendly skill inspection.
+- Added `python3 main.py --show-skill <skill_name>` for operator-friendly skill inspection.
 - Expanded the brownfield eval corpus with additional artifact and implementation cases.
 
 
@@ -192,7 +192,7 @@ Includes:
 - Added **Recovery Meta-Agent** and **Skill Reviewer** routing
 - Added autonomous **cross review + auto-apply policy** for low/medium-risk runtime overrides
 - Added audit/history files under `skill_history/`
-- Added `python main.py --show-recovery-history`
+- Added `python3 main.py --show-recovery-history`
 
 ## v24.1 additions
 - hardened adaptive recovery with an independent skill reviewer rubric
@@ -204,5 +204,14 @@ Includes:
 ## v24.2 hardening
 
 - reviewer fallback is now conservative: invalid reviewer output results in `reject` and no auto-apply
-- `python main.py --show-recovery-history` is wired end-to-end
+- `python3 main.py --show-recovery-history` is wired end-to-end
 - recovery history records reviewer fallback reason codes for audit
+
+
+## v25 additions
+
+- Smarter lane detection with `--execution-mode` (`auto`, `frontend_only`, `backend_only`, `fullstack`) so small UI stories do not automatically activate backend work.
+- Real parallel FE/BE developer and reviewer execution using thread pools.
+- Deterministic preflight runs before reviewer/lead LLM calls to avoid wasting expensive calls on obvious file/import/package errors.
+- Frontend dependency installs use manifest-hash caching and prefer `npm ci` when a lockfile exists, reducing repeated install cost across retries.
+- JSON extraction is more robust than the old greedy-regex approach.

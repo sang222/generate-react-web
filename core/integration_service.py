@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from core.change_request import create_change_request
+from core.effective_target import derive_effective_target
 from core.file_manager import write_project
 from core.orchestrator_helpers.delivery import find_missing_required_files_in_output
 from core.utils.json_utils import dedupe_files
@@ -44,7 +45,8 @@ def integrate_and_validate_outputs(
     merged_files = dedupe_files(context["be_files"] + context["fe_files"])
     write_project(merged_files)
 
-    missing_required_files = find_missing_required_files_in_output(system_target)
+    effective_target = derive_effective_target(system_target, active)
+    missing_required_files = find_missing_required_files_in_output(effective_target)
     if missing_required_files:
         execution_error = "Missing required files after applying this story: " + ", ".join(missing_required_files)
         retry_reason = "missing_required_files"
@@ -68,4 +70,5 @@ def integrate_and_validate_outputs(
         "fix_suggestion": fix_suggestion,
         "bugs": bugs,
         "has_blocking_issue": bool(conflicts or missing_required_files),
+        "effective_target": effective_target,
     }

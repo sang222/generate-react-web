@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List
 
 from agents.developer import run_developer
@@ -13,17 +14,7 @@ from core.utils.json_utils import extract_json_object, normalize_files
 from .context import build_planned_changes, build_workflow_context, log_step
 
 
-def detect_needed_lanes(story_packet: Dict[str, Any], task: str) -> List[str]:
-    packet_text = (task + "\n" + json.dumps(story_packet, ensure_ascii=False)).lower()
-    level = int(story_packet.get("project_level", 2) or 2)
-    backend_markers = ["backend", "api", "spring", "controller", "repository", "database", "postgres", "jpa", "auth", "service"]
-    needs_backend = any(marker in packet_text for marker in backend_markers)
-    if level <= 1 and not needs_backend:
-        return ["frontend"]
-    if needs_backend or story_packet.get("system_target", {}).get("system_type") == "fullstack_website":
-        return ["frontend", "backend"]
-    return ["frontend"]
-
+from core.lane_detection import detect_needed_lanes
 
 def run_lead_and_store_summary(context: Dict[str, Any], memory_manager: AgentMemoryManager, rule_reason: str, max_loop: int, system_target: Dict[str, Any]) -> None:
     log_step(f"Loop {context['loop_count']}/{max_loop} - Running Lead (status={context['release_status']}, severity={context['severity']})")
@@ -69,6 +60,32 @@ def run_lane_developer(context: Dict[str, Any], memory_manager: AgentMemoryManag
     )
     result = extract_json_object(raw)
     return normalize_files(result), result
+
+
+def run_lane_developers_parallel(context: Dict[str, Any], memory_manager: AgentMemoryManager, ownership_map: Dict[str, Any], system_target: Dict[str, Any], max_loop: int) -> Dict[str, tuple[list[dict], dict]]:
+    active_lanes = detect_needed_lanes(context["story_packet"], context["task"])
+    lane_specs = []
+    if "frontend" in active_lanes:
+        lane_specs.append(("frontend", "fe_developer"))
+    if "backend" in active_lanes:
+        lane_specs.append(("backend", "be_developer"))
+
+    if len(lane_specs) <= 1:
+        results: Dict[str, tuple[list[dict], dict]] = {}
+        for lane, role in lane_specs:
+            results[lane] = run_lane_developer(context, memory_manager, lane, role, ownership_map, system_target, max_loop)
+        return results
+
+    results: Dict[str, tuple[list[dict], dict]] = {}
+    with ThreadPoolExecutor(max_workers=len(lane_specs)) as executor:
+        future_map = {
+            executor.submit(run_lane_developer, context, memory_manager, lane, role, ownership_map, system_target, max_loop): lane
+            for lane, role in lane_specs
+        }
+        for future in as_completed(future_map):
+            lane = future_map[future]
+            results[lane] = future.result()
+    return results
 
 
 def run_lane_review(context: Dict[str, Any], memory_manager: AgentMemoryManager, lane: str, role: str, code: dict, system_target: Dict[str, Any]) -> dict:

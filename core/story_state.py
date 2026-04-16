@@ -266,7 +266,7 @@ def classify_project_level(story: Dict[str, Any], system_target: Dict[str, Any],
     return {"level": level, "profile": profile, "reasoning": reasons}
 
 
-def default_story_packet(project_id: str, epic_id: str, story_id: str, story_name: str, baseline_path: str, ownership_map_path: str, task: str, project_mode: str = 'new_project') -> Dict[str, Any]:
+def default_story_packet(project_id: str, epic_id: str, story_id: str, story_name: str, baseline_path: str, ownership_map_path: str, task: str, project_mode: str = 'new_project', execution_mode: str = 'auto') -> Dict[str, Any]:
     story = get_story_definition(project_id, story_id)
     system_target = get_system_target(load_module_config())
     sizing = classify_project_level(story, system_target, baseline_path, project_mode)
@@ -283,6 +283,7 @@ def default_story_packet(project_id: str, epic_id: str, story_id: str, story_nam
         'delivery_target': f'deliveries/{project_id}/{story_id}/source',
         'ownership_map_path': ownership_map_path,
         'goal': task,
+        'execution_mode': execution_mode,
         'depends_on': story.get('depends_on', []),
         'acceptance_criteria': story.get('acceptance_criteria', []),
         'in_scope': story.get('in_scope', []),

@@ -147,6 +147,7 @@ def _interactive_collect(args: argparse.Namespace) -> argparse.Namespace:
     args.resume_from = _ask('Resume from path', allow_empty=True) if need_resume else None
 
     args.depends_on = _ask_optional_list('Dependency story ID') if _ask_yes_no('Add story dependencies?', default=False) else None
+    args.execution_mode = _ask_choice('Execution mode', ['auto', 'frontend_only', 'backend_only', 'fullstack'], default=args.execution_mode or 'auto')
     args.json = _ask_yes_no('Print full JSON result?', default=args.json)
     args.save_result = _ask('Result output path', allow_empty=True) if _ask_yes_no('Save full result to a file?', default=False) else None
     return args
@@ -164,6 +165,7 @@ def main() -> int:
     parser.add_argument('--resume-from', help='Path to a delivered story source directory to continue from')
     parser.add_argument('--depends-on', action='append', default=None, help='Story dependency. Repeat for multiple dependencies.')
     parser.add_argument('--entry-skill', default='dev-team-workflow', choices=['dev-team-workflow', 'dev-team-agent', 'dev-team-setup'])
+    parser.add_argument('--execution-mode', default='auto', choices=['auto', 'frontend_only', 'backend_only', 'fullstack'], help='Lane activation policy for implementation')
     parser.add_argument('--json', action='store_true', help='Print full result as JSON')
     parser.add_argument('--workflow-status', action='store_true', help='Show workflow status for a project and exit')
     parser.add_argument('--list-skill-candidates', action='store_true', help='List skill candidates and exit')
@@ -260,7 +262,7 @@ def main() -> int:
 
     try:
         from core.orchestrator import run_orchestrator
-        result = run_orchestrator(task, project_mode=args.project_mode, project_id=args.project_id, epic_id=args.epic_id, story_id=args.story_id, story_name=args.story_name, resume_from=args.resume_from, depends_on=args.depends_on)
+        result = run_orchestrator(task, project_mode=args.project_mode, project_id=args.project_id, epic_id=args.epic_id, story_id=args.story_id, story_name=args.story_name, resume_from=args.resume_from, depends_on=args.depends_on, execution_mode=args.execution_mode)
     except KeyboardInterrupt:
         print('Q: workflow run')
         print('A: Interrupted')

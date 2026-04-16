@@ -10,7 +10,8 @@ from agents.pm import run_pm
 from core.adaptive_recovery import run_adaptive_recovery, should_trigger_adaptive_recovery
 from core.config import get_system_target, load_module_config
 from core.decision_service import decide_final_decision
-from core.executor import run_system_check
+from core.effective_target import derive_effective_target
+from core.executor import run_preflight_checks, run_system_check
 from core.file_manager import summarize_project_tree, summarize_project_tree_for
 from core.gates import fail_gate, load_gate_state, pass_gate, save_gate_state
 from core.integration_service import integrate_and_validate_outputs
@@ -29,7 +30,7 @@ from core.orchestrator_helpers.context import (
 from core.orchestrator_helpers.delivery import create_story_delivery
 from core.orchestrator_helpers.lanes import (
     detect_needed_lanes,
-    run_lane_developer,
+    run_lane_developers_parallel,
     run_lead_and_store_summary,
 )
 from core.release_rules import classify_release_status
@@ -120,6 +121,7 @@ def _base_context(
         "adaptive_recovery_block_reason": "",
         "skill_candidate_ids": [],
         "working_output_dir": OUTPUT_PROJECT_DIR,
+        "effective_target": SYSTEM_TARGET,
     }
 
 
@@ -132,6 +134,7 @@ def _initialize_story_context(
     story_name: str | None,
     resume_from: str | None,
     depends_on: List[str] | None,
+    execution_mode: str | None,
 ) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], str]:
     story_id = (story_id or "story_1").strip() or "story_1"
     story_name = (story_name or story_id).strip() or story_id
@@ -157,6 +160,7 @@ def _initialize_story_context(
         ownership_path,
         task,
         effective_project_mode,
+        execution_mode or 'auto',
     )
     story_packet["depends_on"] = depends_on or story_packet.get("depends_on", [])
     story_packet["acceptance_criteria"] = story_def.get("acceptance_criteria", story_packet.get("acceptance_criteria", []))
@@ -266,20 +270,13 @@ def _handle_brownfield_readiness(context: Dict[str, Any], ownership_map: Dict[st
     return context
 
 
+
 def _run_parallel_lanes(context: Dict[str, Any], memory_manager: AgentMemoryManager, ownership_map: Dict[str, Any]) -> None:
     active_lanes = detect_needed_lanes(context["story_packet"], context["task"])
-    fe_files: List[Dict[str, str]] = []
-    be_files: List[Dict[str, str]] = []
-
-    if "backend" in active_lanes:
-        be_files, _ = run_lane_developer(context, memory_manager, "backend", "be_developer", ownership_map, SYSTEM_TARGET, MAX_LOOP)
-
-    if "frontend" in active_lanes:
-        fe_files, _ = run_lane_developer(context, memory_manager, "frontend", "fe_developer", ownership_map, SYSTEM_TARGET, MAX_LOOP)
-
+    results = run_lane_developers_parallel(context, memory_manager, ownership_map, SYSTEM_TARGET, MAX_LOOP)
     context["active_lanes"] = active_lanes
-    context["fe_files"] = fe_files
-    context["be_files"] = be_files
+    context["fe_files"] = results.get("frontend", ([], {}))[0]
+    context["be_files"] = results.get("backend", ([], {}))[0]
 
 
 def _handle_empty_lane_output(context: Dict[str, Any], memory_manager: AgentMemoryManager) -> bool:
@@ -306,6 +303,7 @@ def _handle_empty_lane_output(context: Dict[str, Any], memory_manager: AgentMemo
 
 def _apply_integration_result(context: Dict[str, Any], integration_result: Dict[str, Any], memory_manager: AgentMemoryManager) -> bool:
     context["integration_conflicts"] = integration_result["integration_conflicts"]
+    context["effective_target"] = integration_result.get("effective_target", derive_effective_target(SYSTEM_TARGET, context.get("active_lanes", [])))
     if integration_result["change_requests"]:
         context.setdefault("change_requests", []).extend(integration_result["change_requests"])
 
@@ -336,8 +334,32 @@ def _apply_review_result(context: Dict[str, Any], review_result: Dict[str, Any])
     context["bugs"] = review_result["bugs"]
 
 
+
+
+def _apply_preflight_failure(context: Dict[str, Any], preflight_error: str) -> None:
+    context["execution_error"] = preflight_error
+    context["retry_reason"] = "preflight_failure"
+    context["qa_detail"] = {
+        "structural_bugs": [preflight_error],
+        "functional_bugs": [],
+        "prd_gaps": [],
+        "ui_gaps": [],
+        "regression_bugs": [],
+    }
+    context["fix_suggestion"] = "Fix deterministic file/import/package issues before running reviewer LLMs."
+    context["bugs"] = context["qa_detail"]["structural_bugs"]
+
+
+def _run_preflight_before_reviews(context: Dict[str, Any]) -> bool:
+    ok, message = run_preflight_checks(output_dir=OUTPUT_PROJECT_DIR, system_target=SYSTEM_TARGET, active_lanes=context.get("active_lanes", []))
+    if ok:
+        return False
+    _apply_preflight_failure(context, message)
+    write_workflow_status(context, "Retry required for the current story (deterministic preflight failed).")
+    return True
+
 def _finalize_loop(context: Dict[str, Any], memory_manager: AgentMemoryManager) -> bool:
-    success, error_message = run_system_check(system_target=SYSTEM_TARGET)
+    success, error_message = run_system_check(output_dir=OUTPUT_PROJECT_DIR, system_target=SYSTEM_TARGET, active_lanes=context.get("active_lanes", []))
     if context["execution_error"]:
         success = False
     if not success and not context["execution_error"]:
@@ -385,12 +407,13 @@ def run_orchestrator(
     story_name: str | None = None,
     resume_from: str | None = None,
     depends_on: List[str] | None = None,
+    execution_mode: str | None = None,
 ) -> Dict[str, Any]:
     memory_manager = AgentMemoryManager()
     memory_manager.ensure_bootstrap()
 
     context, _story_packet, ownership_map, _effective_mode = _initialize_story_context(
-        task, project_mode, project_id, epic_id, story_id, story_name, resume_from, depends_on
+        task, project_mode, project_id, epic_id, story_id, story_name, resume_from, depends_on, execution_mode
     )
 
     context["first_breath"] = memory_manager.ensure_first_breath(task, build_workflow_context(context, SYSTEM_TARGET))
@@ -429,11 +452,17 @@ def run_orchestrator(
         if _apply_integration_result(context, integration_result, memory_manager):
             continue
 
+        if _run_preflight_before_reviews(context):
+            append_history(context)
+            continue
+
         review_result = review_merged_output(
             context=context,
             memory_manager=memory_manager,
             ownership_map=ownership_map,
-            system_target=SYSTEM_TARGET,
+            active_lanes=context["active_lanes"],
+            merged_files=context["code"]["files"],
+            system_target=context.get("effective_target", SYSTEM_TARGET),
         )
         _apply_review_result(context, review_result)
 

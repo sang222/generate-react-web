@@ -11,7 +11,20 @@ from core.story_state import lock_artifacts, update_delivery_index
 
 def find_missing_required_files_in_output(system_target: Dict[str, Any]) -> List[str]:
     required: List[str] = []
-    if system_target.get("system_type") == "fullstack_website":
+    effective_mode = system_target.get("effective_mode")
+    if effective_mode == "frontend_only":
+        required.extend([
+            "frontend/package.json",
+            "frontend/index.html",
+            "frontend/src/main.jsx",
+            "frontend/src/App.jsx",
+        ])
+    elif effective_mode == "backend_only":
+        required.extend([
+            "backend/build.gradle",
+            "backend/src/main/resources/application.properties",
+        ])
+    elif system_target.get("system_type") == "fullstack_website":
         required.extend([
             "frontend/package.json",
             "frontend/index.html",

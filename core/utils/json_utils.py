@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Dict, List
 
 
@@ -13,16 +12,64 @@ def safe_json_loads(text: str) -> Dict[str, Any]:
         return {}
 
 
+def _json_substrings(text: str) -> List[str]:
+    candidates: List[str] = []
+    stack = 0
+    start = -1
+    in_string = False
+    escape = False
+
+    for idx, ch in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch == '{':
+            if stack == 0:
+                start = idx
+            stack += 1
+        elif ch == '}' and stack:
+            stack -= 1
+            if stack == 0 and start >= 0:
+                candidates.append(text[start:idx + 1])
+                start = -1
+
+    return candidates
+
+
 def extract_json_object(text: str) -> Dict[str, Any]:
     if not text:
         return {}
+
     direct = safe_json_loads(text)
     if direct:
         return direct
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not match:
-        return {}
-    return safe_json_loads(match.group(0))
+
+    stripped = text.strip()
+    if stripped.startswith('```'):
+        parts = stripped.split('```')
+        for part in parts:
+            payload = part.strip()
+            if payload.lower().startswith('json'):
+                payload = payload[4:].strip()
+            candidate = safe_json_loads(payload)
+            if candidate:
+                return candidate
+
+    for candidate_text in _json_substrings(text):
+        candidate = safe_json_loads(candidate_text)
+        if candidate:
+            return candidate
+    return {}
 
 
 def normalize_files(dev_result: Dict[str, Any]) -> List[Dict[str, str]]:

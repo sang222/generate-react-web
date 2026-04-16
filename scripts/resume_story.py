@@ -14,6 +14,7 @@ def main() -> int:
     parser.add_argument('--epic-id', required=True)
     parser.add_argument('--story-id', required=True)
     parser.add_argument('--story-name', required=True)
+    parser.add_argument('--execution-mode', default='auto', choices=['auto', 'frontend_only', 'backend_only', 'fullstack'])
     parser.add_argument('--resume-from', required=True)
     parser.add_argument('--depends-on', action='append', default=None)
     args = parser.parse_args()
@@ -26,6 +27,7 @@ def main() -> int:
         story_name=args.story_name,
         resume_from=args.resume_from,
         depends_on=args.depends_on,
+        execution_mode=args.execution_mode,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get('final_decision') in {'DONE', 'DELIVER_STORY'} else 2
