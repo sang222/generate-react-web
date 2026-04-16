@@ -8,7 +8,7 @@ from typing import Any, Dict
 from core.cross_reviewer import cross_review_candidate
 from core.llm import call_role_llm
 from core.risk_classifier import classify_candidate_risk
-from core.runtime_override_manager import apply_runtime_override
+from core.runtime_override_manager import apply_runtime_override, resolve_final_apply_scope
 from core.skill_candidates import create_skill_candidate, candidate_dir
 from core.recovery_history import log_auto_applied, log_candidate_review, log_candidate_run
 from core.utils.json_utils import extract_json_object
@@ -146,17 +146,24 @@ def run_recovery_engine(context: Dict[str, Any], root: str | Path = '.') -> Dict
         'story_id': context.get('story_id',''),
         'reviewer_verdict': review.get('review_result','reject'),
         'fallback_reason_code': review.get('fallback_reason_code',''),
-        'apply_scope': review.get('apply_scope', risk.get('apply_scope','reject')),
+        'risk_scope': risk.get('apply_scope', 'reject'),
+        'review_scope': review.get('apply_scope', risk.get('apply_scope','reject')),
+        'final_resolved_scope': final_scope,
         'risk_level': review.get('risk_level', risk.get('risk_level','high')),
         'reasoning_summary': review.get('reasoning_summary',''),
     }, root)
 
-    applied = apply_runtime_override(context, candidate, str(review.get('apply_scope', risk.get('apply_scope','reject'))))
+    risk_scope = str(risk.get('apply_scope', 'reject'))
+    review_scope = str(review.get('apply_scope', risk_scope))
+    final_scope = resolve_final_apply_scope(risk_scope, review_scope)
+    applied = apply_runtime_override(context, candidate, final_scope)
     log_auto_applied({
         'candidate_id': candidate_id,
         'project_id': context.get('project_id',''),
         'story_id': context.get('story_id',''),
-        'apply_scope': applied.get('apply_scope','reject'),
+        'risk_scope': risk.get('apply_scope', 'reject'),
+        'review_scope': review.get('apply_scope', risk.get('apply_scope','reject')),
+        'final_resolved_scope': applied.get('apply_scope','reject'),
         'override_result': 'applied' if applied.get('auto_applied') else 'not_applied',
         'rerun_allowed': bool(applied.get('rerun_allowed', False)),
         'blocked_reason': applied.get('blocked_reason','') or review.get('fallback_reason_code',''),

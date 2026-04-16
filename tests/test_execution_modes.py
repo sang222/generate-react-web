@@ -23,7 +23,7 @@ class ExecutionModeTests(unittest.TestCase):
 
     def test_effective_target_frontend_only_disables_backend(self) -> None:
         target = derive_effective_target(BASE_TARGET, ["frontend"])
-        self.assertEqual(target["system_type"], "frontend_web_app")
+        self.assertEqual(target["system_type"], "fullstack_website")
         self.assertEqual(target["backend_language"], "none")
 
     def test_effective_target_backend_only_keeps_backend(self) -> None:
@@ -34,3 +34,18 @@ class ExecutionModeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class EffectiveLayoutTests(unittest.TestCase):
+    def test_frontend_only_required_files_keep_frontend_subdir_layout(self) -> None:
+        from core.orchestrator_helpers.delivery import find_missing_required_files_in_output
+        target = derive_effective_target(BASE_TARGET, ["frontend"])
+        missing = find_missing_required_files_in_output(target)
+        self.assertIn("frontend/package.json", missing)
+        self.assertNotIn("package.json", missing)
+
+    def test_backend_only_disables_frontend_preflight_checks(self) -> None:
+        target = derive_effective_target(BASE_TARGET, ["backend"])
+        self.assertEqual(target["effective_mode"], "backend_only")
+        self.assertEqual(target["frontend_stack"], "none")

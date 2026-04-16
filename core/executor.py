@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 OUTPUT_DIR = "output_project"
 NPM_INSTALL_TIMEOUT = 240
@@ -257,14 +257,15 @@ def run_preflight_checks(output_dir: str = OUTPUT_DIR, system_target: Optional[D
         if not ok:
             return False, message
 
-    frontend_dir = _frontend_root(project_dir, target)
-    package_error = validate_package_json_dependencies(frontend_dir)
-    if package_error:
-        return False, package_error
+    if target.get("effective_mode") != "backend_only":
+        frontend_dir = _frontend_root(project_dir, target)
+        package_error = validate_package_json_dependencies(frontend_dir)
+        if package_error:
+            return False, package_error
 
-    issues = _find_local_import_issues(frontend_dir / "src")
-    if issues:
-        return False, "[preflight import check failed]\n" + "\n".join(issues[:20])
+        issues = _find_local_import_issues(frontend_dir / "src")
+        if issues:
+            return False, "[preflight import check failed]\n" + "\n".join(issues[:20])
     return True, ""
 
 

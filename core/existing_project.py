@@ -9,20 +9,24 @@ def _root(project_id: str) -> Path:
     return Path("project_state") / project_id
 
 
-def existing_system_summary_path(project_id: str) -> Path:
-    return _root(project_id) / "existing_system_summary.md"
+def story_artifact_root(project_id: str, story_id: str) -> Path:
+    return _root(project_id) / "stories" / story_id
 
 
-def change_impact_report_path(project_id: str) -> Path:
-    return _root(project_id) / "change_impact_report.json"
+def existing_system_summary_path(project_id: str, story_id: str) -> Path:
+    return story_artifact_root(project_id, story_id) / "existing_system_summary.md"
 
 
-def integration_strategy_path(project_id: str) -> Path:
-    return _root(project_id) / "integration_strategy.md"
+def change_impact_report_path(project_id: str, story_id: str) -> Path:
+    return story_artifact_root(project_id, story_id) / "change_impact_report.json"
 
 
-def readiness_report_path(project_id: str) -> Path:
-    return _root(project_id) / "brownfield_readiness_report.json"
+def integration_strategy_path(project_id: str, story_id: str) -> Path:
+    return story_artifact_root(project_id, story_id) / "integration_strategy.md"
+
+
+def readiness_report_path(project_id: str, story_id: str) -> Path:
+    return story_artifact_root(project_id, story_id) / "brownfield_readiness_report.json"
 
 
 def _write_text(path: Path, content: str) -> str:
@@ -39,6 +43,7 @@ def _write_json(path: Path, payload: Dict[str, Any]) -> str:
 
 def generate_existing_system_summary(
     project_id: str,
+    story_id: str,
     baseline_path: str,
     baseline_tree: str,
     system_target: Dict[str, Any],
@@ -68,10 +73,10 @@ def generate_existing_system_summary(
 - Reuse the baseline project instead of regenerating it from scratch.
 - Preserve shared modules and existing contracts unless explicitly approved.
 """
-    return _write_text(existing_system_summary_path(project_id), content)
+    return _write_text(existing_system_summary_path(project_id, story_id), content)
 
 
-def generate_change_impact_report(project_id: str, story_packet: Dict[str, Any], ownership_map: Dict[str, Any]) -> str:
+def generate_change_impact_report(project_id: str, story_id: str, story_packet: Dict[str, Any], ownership_map: Dict[str, Any]) -> str:
     frontend_paths = ownership_map.get("teams", {}).get("frontend", {}).get("owned_paths", []) or []
     backend_paths = ownership_map.get("teams", {}).get("backend", {}).get("owned_paths", []) or []
     in_scope = story_packet.get("in_scope", []) or []
@@ -99,10 +104,10 @@ def generate_change_impact_report(project_id: str, story_packet: Dict[str, Any],
         "in_scope": in_scope,
         "out_of_scope": story_packet.get("out_of_scope", []) or [],
     }
-    return _write_json(change_impact_report_path(project_id), report)
+    return _write_json(change_impact_report_path(project_id, story_id), report)
 
 
-def generate_integration_strategy(project_id: str, story_packet: Dict[str, Any], design: str, impact_report: Dict[str, Any]) -> str:
+def generate_integration_strategy(project_id: str, story_id: str, story_packet: Dict[str, Any], design: str, impact_report: Dict[str, Any]) -> str:
     affected = impact_report.get("affected_modules", []) or []
     protected = impact_report.get("protected_modules", []) or []
     content = f"""
@@ -130,23 +135,41 @@ Incremental extension
 ## Architect guidance
 {design[:3000] if design else 'No architect guidance provided.'}
 """
-    return _write_text(integration_strategy_path(project_id), content)
+    return _write_text(integration_strategy_path(project_id, story_id), content)
 
 
 def generate_readiness_report(
     project_id: str,
+    story_id: str,
     story_packet: Dict[str, Any],
     baseline_path: str,
     impact_report: Dict[str, Any],
     integration_strategy_text: str,
 ) -> str:
     missing = []
+    protected_missing = []
+    baseline_root = Path(baseline_path) if baseline_path else None
     if not baseline_path:
         missing.append("missing baseline path")
+    elif not baseline_root.exists():
+        missing.append("baseline path does not exist")
+    elif not baseline_root.is_dir():
+        missing.append("baseline path is not a directory")
+    else:
+        has_any_file = any(p.is_file() for p in baseline_root.rglob("*"))
+        if not has_any_file:
+            missing.append("baseline tree is empty")
     if not impact_report.get("affected_modules"):
         missing.append("missing affected modules")
     if not integration_strategy_text.strip():
         missing.append("missing integration strategy")
+    if baseline_root and baseline_root.exists() and baseline_root.is_dir():
+        for protected in impact_report.get("protected_modules", []) or []:
+            protected_path = baseline_root / protected
+            if not protected_path.exists():
+                protected_missing.append(protected)
+        if protected_missing:
+            missing.append("protected modules missing from baseline")
     ready = len(missing) == 0
     payload = {
         "project_id": project_id,
@@ -154,10 +177,12 @@ def generate_readiness_report(
         "ready": ready,
         "missing_information": missing,
         "known_risks": impact_report.get("breaking_risks", []),
+        "protected_modules_checked": impact_report.get("protected_modules", []),
+        "missing_protected_modules": protected_missing,
         "approved_strategy": "incremental extension" if ready else "",
         "can_start_implementation": ready,
     }
-    return _write_json(readiness_report_path(project_id), payload)
+    return _write_json(readiness_report_path(project_id, story_id), payload)
 
 
 def load_json(path: str | Path) -> Dict[str, Any]:

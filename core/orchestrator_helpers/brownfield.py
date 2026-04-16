@@ -14,18 +14,21 @@ from core.existing_project import (
 
 def prepare_existing_project_artifacts(context: Dict[str, Any], ownership_map: Dict[str, Any], system_target: Dict[str, Any]) -> Dict[str, Any]:
     project_id = context["project_id"]
+    story_id = context["story_id"]
     summary_path = generate_existing_system_summary(
         project_id=project_id,
+        story_id=story_id,
         baseline_path=context.get("baseline_path", ""),
         baseline_tree=context.get("baseline_tree", ""),
         system_target=context.get("system_target", system_target),
         ownership_map=ownership_map,
     )
-    impact_path = generate_change_impact_report(project_id, context.get("story_packet", {}), ownership_map)
+    impact_path = generate_change_impact_report(project_id, story_id, context.get("story_packet", {}), ownership_map)
     impact_report = load_existing_json(impact_path)
-    strategy_path = generate_integration_strategy(project_id, context.get("story_packet", {}), context.get("design", ""), impact_report)
+    strategy_path = generate_integration_strategy(project_id, story_id, context.get("story_packet", {}), context.get("design", ""), impact_report)
     readiness_path = generate_readiness_report(
         project_id,
+        story_id,
         context.get("story_packet", {}),
         context.get("baseline_path", ""),
         impact_report,

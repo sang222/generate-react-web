@@ -142,8 +142,24 @@ def build_workflow_context(context: Dict[str, Any], system_target: Dict[str, Any
     }
 
 
+
+
+def story_state_root(project_id: str, story_id: str) -> Path:
+    return Path("project_state") / project_id / "stories" / story_id
+
+
+def resolve_run_state_path(context: Dict[str, Any], state_dir: Path, run_state_path: Path) -> Path:
+    story_root = story_state_root(context.get("project_id", ""), context.get("story_id", "story_1"))
+    story_root.mkdir(parents=True, exist_ok=True)
+    run_id = context.get("run_id", "current") or "current"
+    story_run_path = story_root / f"run_state_{run_id}.json"
+    current_story_path = story_root / "run_state_current.json"
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+    context["run_state_path"] = str(current_story_path)
+    context["run_snapshot_path"] = str(story_run_path)
+    return story_run_path
+
 def write_run_state(context: Dict[str, Any], state_dir: Path, run_state_path: Path, output_project_dir: str, system_target: Dict[str, Any]) -> str:
-    state_dir.mkdir(parents=True, exist_ok=True)
     state = {
         "run_id": context.get("run_id", ""),
         "project_id": context.get("project_id", ""),
@@ -179,8 +195,12 @@ def write_run_state(context: Dict[str, Any], state_dir: Path, run_state_path: Pa
         "adaptive_recovery_block_reason": context.get("adaptive_recovery_block_reason", ""),
         "skill_candidate_ids": context.get("skill_candidate_ids", []),
     }
-    run_state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    return str(run_state_path)
+    snapshot_path = resolve_run_state_path(context, state_dir, run_state_path)
+    payload = json.dumps(state, ensure_ascii=False, indent=2)
+    snapshot_path.write_text(payload, encoding="utf-8")
+    Path(context["run_state_path"]).write_text(payload, encoding="utf-8")
+    run_state_path.write_text(payload, encoding="utf-8")
+    return str(snapshot_path)
 
 
 def prepare_baseline(context: Dict[str, Any]) -> None:

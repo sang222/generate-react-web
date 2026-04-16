@@ -105,6 +105,7 @@ def _base_context(
         "story_acceptance_criteria": story_packet.get("acceptance_criteria", []),
         "ownership_map_path": ownership_path,
         "artifact_locks_path": str(Path("project_state") / project_id / "artifact_locks.json"),
+        "story_state_root": str(Path("project_state") / project_id / "stories" / story_id),
         "change_requests": [],
         "story_packet": story_packet,
         "fe_files": [],
@@ -254,7 +255,7 @@ def _handle_brownfield_readiness(context: Dict[str, Any], ownership_map: Dict[st
         write_workflow_status(context, "Proceed to implementation for the current story.")
         return None
 
-    context["gate_state"] = fail_gate(context["gate_state"], "BROWNFIELD_READINESS_GATE", "Existing project readiness is incomplete.")
+    context["gate_state"] = fail_gate(context["gate_state"], "BROWNFIELD_READINESS_GATE", "Existing project readiness is incomplete.", reason_code="BROWNFIELD_READINESS_INCOMPLETE")
     save_gate_state(context["gate_state"])
     context["execution_error"] = "[brownfield readiness failed]\nMissing information: " + ", ".join(
         brownfield["readiness_report"].get("missing_information", [])
@@ -376,7 +377,7 @@ def _finalize_loop(context: Dict[str, Any], memory_manager: AgentMemoryManager) 
         save_gate_state(context["gate_state"])
         return True
 
-    context["gate_state"] = fail_gate(context["gate_state"], "GATE_4_IMPLEMENTATION", context.get("execution_error", "") or "Implementation gate failed.")
+    context["gate_state"] = fail_gate(context["gate_state"], "GATE_4_IMPLEMENTATION", context.get("execution_error", "") or "Implementation gate failed.", reason_code=context.get("retry_reason", "IMPLEMENTATION_FAILED"))
     save_gate_state(context["gate_state"])
     write_workflow_status(context, "Retry required for the current story.")
     return False
@@ -394,6 +395,17 @@ def _maybe_run_adaptive_recovery(context: Dict[str, Any]) -> bool:
         context["release_status"] = "BLOCKED"
         context["severity"] = "BLOCKER"
         context["execution_error"] = context.get("execution_error") or blocked_reason
+        context["gate_state"] = fail_gate(context["gate_state"], "RECOVERY_GATE", blocked_reason, reason_code=blocked_reason)
+        save_gate_state(context["gate_state"])
+        return True
+    if int(context.get("loop_count", 0) or 0) >= MAX_LOOP:
+        budget_reason = "BLOCKED_NO_RECOVERY_RERUN_BUDGET"
+        context["release_status"] = "BLOCKED"
+        context["severity"] = "BLOCKER"
+        context["adaptive_recovery_block_reason"] = budget_reason
+        context["execution_error"] = context.get("execution_error") or budget_reason
+        context["gate_state"] = fail_gate(context["gate_state"], "RECOVERY_GATE", "Adaptive recovery had no rerun budget.", reason_code=budget_reason)
+        save_gate_state(context["gate_state"])
         return True
     return False
 

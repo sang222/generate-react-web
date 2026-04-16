@@ -18,7 +18,8 @@ def derive_effective_target(system_target: Dict[str, Any], active_lanes: Iterabl
 
     if has_frontend:
         target['effective_mode'] = 'frontend_only'
-        target['system_type'] = 'frontend_web_app'
+        # Keep the original layout semantics (e.g. fullstack repos still use frontend/)
+        # and only disable non-frontend lanes.
         target['backend_language'] = 'none'
         target['backend_framework'] = 'none'
         target['backend_build_tool'] = 'none'

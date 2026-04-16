@@ -4,6 +4,19 @@ from typing import Any, Dict, Literal
 
 ApplyScope = Literal["runtime_override", "project_only", "core_candidate_only", "reject"]
 
+SCOPE_ORDER = {
+    'runtime_override': 0,
+    'project_only': 1,
+    'core_candidate_only': 2,
+    'reject': 3,
+}
+
+
+def resolve_final_apply_scope(risk_scope: str, review_scope: str) -> ApplyScope:
+    rs = risk_scope if risk_scope in SCOPE_ORDER else 'reject'
+    vs = review_scope if review_scope in SCOPE_ORDER else 'reject'
+    return rs if SCOPE_ORDER[rs] >= SCOPE_ORDER[vs] else vs
+
 
 def apply_runtime_override(context: Dict[str, Any], candidate: Dict[str, Any], scope: ApplyScope) -> Dict[str, Any]:
     runtime_override = candidate.get("runtime_override") if isinstance(candidate.get("runtime_override"), dict) else {}
