@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ollama import Client
-
+from ollama import ChatResponse
 from core.config import get_model_for_role
 from core.token_budget import check_budget_before_call, estimate_tokens, record_llm_usage
 
@@ -42,7 +42,7 @@ def call_role_llm(role: str, prompt: str, temperature: float = 0.2, host: str | 
     check_budget_before_call(role, estimate_tokens(prompt))
     client = get_ollama_cloud_client()
     started = time.time()
-    response: dict[str, Any] = client.chat(
+    response: ChatResponse = client.chat(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": temperature},
