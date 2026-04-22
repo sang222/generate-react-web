@@ -215,3 +215,95 @@ Includes:
 - Deterministic preflight runs before reviewer/lead LLM calls to avoid wasting expensive calls on obvious file/import/package errors.
 - Frontend dependency installs use manifest-hash caching and prefer `npm ci` when a lockfile exists, reducing repeated install cost across retries.
 - JSON extraction is more robust than the old greedy-regex approach.
+
+## v28 additions - token telemetry and context budget
+
+v28 adds cost-control groundwork on top of the brownfield enforcement branch:
+
+- Token telemetry per LLM call is written to `project_state/<project_id>/stories/<story_id>/token_usage.jsonl`.
+- Optional token budget guardrail via env vars:
+  - `STORY_TOKEN_BUDGET`
+  - `ROLE_TOKEN_BUDGET_DEVELOPER`
+  - `ROLE_TOKEN_BUDGET_QA`
+- If a prompt would exceed the configured budget, the run is blocked with `BLOCKED_TOKEN_BUDGET_EXCEEDED`.
+- Brownfield corpus loading is now more role-aware:
+  - readiness checklist is limited to PM/Architect-style roles
+  - regression checklist is limited to QA/reviewer roles
+  - change request rules are loaded only for roles that can act on protected/scope issues
+- Examples/cases are loaded selectively on retries or higher-complexity stories instead of always being injected.
+- Lane detection now prefers explicit execution mode and in-scope path hints before keyword fallback.
+
+This branch is intended to make token/cost behavior measurable before further optimization.
+
+## v29 additions - Huashu-inspired FE skill pack
+
+v29 adds frontend-focused skills to improve visual quality and reduce generic UI output:
+
+- `skills/fe-design-direction/`: design direction, tokens, component plan, fallback variants.
+- `skills/fe-ui-implementation/`: production React/RN UI implementation with CSS/framework policy, anti-slop rules, no-fake-API protocol, and touched-boundary contract.
+- `skills/fe-visual-review/`: visual QA report with hierarchy/layout/brand/interaction/implementation scoring and anti-slop flags.
+- `skills/fe-style-packs/`: domain taste packs for fintech, landing pages, admin, consumer, and mobile banking.
+- `skills/fe-data-ui/`: dashboard/table/chart/report UI rules.
+
+Existing project styling is the source of truth. New React web defaults to Tailwind + design tokens. React Native defaults to StyleSheet + tokens unless NativeWind or another system already exists.
+
+## v31 additions - DeepAgents-inspired runtime foundation
+
+This version starts the `versions/deepagents-inspired-runtime` branch on top of the latest available source.
+
+### What changed
+
+- Added runtime primitives:
+  - `RuntimeState`
+  - `NodeResult`
+  - `RuntimeNode`
+  - `RuntimeGraph`
+  - `Checkpointer`
+- Added compatibility node:
+  - `core/runtime/nodes/legacy_orchestrator_node.py`
+- Added runtime factory:
+  - `core/runtime/factory.py`
+- Added early service wrappers:
+  - `GateService`
+  - `StoryService`
+  - `DeliveryService`
+  - `CheckpointService`
+- Added early tool boundary primitives:
+  - `ToolBoundary`
+  - `FilesystemTool`
+  - `ShellTool`
+  - `ArtifactWriter`
+- Added subagent primitives:
+  - `RoleRegistry`
+  - `SubagentRunner`
+- Added Ollama Cloud-only runtime:
+  - `core/llm.py` connects only to `https://ollama.com`
+  - `OLLAMA_API_KEY` is required
+- Kept compatibility:
+  - existing `core/orchestrator.py` still works
+  - `main.py` still supports the legacy path
+  - `main.py --use-runtime-graph` runs through the new graph wrapper
+
+### Test Ollama Cloud
+
+```bash
+cp .env.example .env
+# edit OLLAMA_API_KEY
+python3 scripts/test_ollama_cloud_connection.py --model qwen3.5:cloud
+```
+
+### Run through the new graph wrapper
+
+```bash
+python3 main.py "Build a simple landing page" \
+  --project-id demo \
+  --story-id story_1 \
+  --execution-mode frontend_only \
+  --use-runtime-graph
+```
+
+### Design note
+
+This is not a big-bang refactor. The initial graph contains a `LegacyOrchestratorNode`, then future commits can extract ReviewNode, ImplementationNode, CandidateLearningNode, Bootstrap/BrownfieldNode, and Planning/DesignNode one at a time.
+
+See `docs/TDD_v31_deepagents_inspired_runtime.md`.

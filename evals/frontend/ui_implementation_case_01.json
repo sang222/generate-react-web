@@ -1,0 +1,8 @@
+{
+  "case_id": "ui_implementation_case_01",
+  "skill": "fe-ui-implementation",
+  "input_summary": "Implement selected design direction in existing React project",
+  "expected_artifacts": ["implementation JSON", "touched_boundary"],
+  "required_characteristics": ["files array", "touched paths", "allowed scope matches", "no fake API", "framework policy respected"],
+  "bad_markers": ["new UI framework", "fake stats", "out of scope path", "decorative animation"]
+}

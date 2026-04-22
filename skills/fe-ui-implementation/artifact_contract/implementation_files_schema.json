@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["files", "touched_boundary"],
+  "properties": {
+    "files": {
+      "type": "array",
+      "items": {"type": "object", "required": ["path", "content"]}
+    },
+    "touched_boundary": {"type": "object"}
+  }
+}

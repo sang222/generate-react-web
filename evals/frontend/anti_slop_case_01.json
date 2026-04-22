@@ -1,0 +1,8 @@
+{
+  "case_id": "anti_slop_case_01",
+  "skill": "fe-visual-review",
+  "input_summary": "Detect generic gradient/glass card UI",
+  "expected_decision": "RETRY",
+  "required_flags": ["anti_slop", "framework_misuse"],
+  "bad_markers": ["passes generic UI", "does not mention design direction mismatch"]
+}

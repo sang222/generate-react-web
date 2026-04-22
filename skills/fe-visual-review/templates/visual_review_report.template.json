@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "decision": "PASS",
+  "score": {
+    "visual_hierarchy": 8,
+    "layout_composition": 8,
+    "brand_consistency": 8,
+    "interaction_quality": 7,
+    "implementation_fit": 9
+  },
+  "issues": [],
+  "anti_slop_flags": [],
+  "retry_prompt": ""
+}

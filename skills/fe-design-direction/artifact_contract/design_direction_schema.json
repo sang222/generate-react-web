@@ -1,0 +1,4 @@
+{
+  "artifact": "design_direction.md",
+  "required_sections": ["Visual thesis", "Layout hierarchy", "Typography", "Color", "Interaction", "Accessibility", "Anti-slop constraints"]
+}

@@ -1,21 +1,30 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+import time
+from typing import Any
 
-import ollama
-from openai import OpenAI
+from ollama import Client
 
 from core.config import get_model_for_role
+from core.token_budget import check_budget_before_call, estimate_tokens, record_llm_usage
+
+OLLAMA_CLOUD_HOST = "https://ollama.com"
 
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
-DASHSCOPE_BASE_URL = os.getenv(
-    "DASHSCOPE_BASE_URL",
-    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-)
-QWEN_CLOUD_MODEL = os.getenv("QWEN_CLOUD_MODEL", "qwen-plus")
+def get_ollama_cloud_client() -> Client:
+    """Return an Ollama Cloud client.
+
+    This repo intentionally uses Ollama Cloud only. Local Ollama fallback was removed
+    so production cost control can be centralized through token telemetry/budgets.
+    """
+    api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OLLAMA_API_KEY is required for Ollama Cloud")
+    return Client(
+        host=OLLAMA_CLOUD_HOST,
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
 
 
 def _extract_ollama_content(response: object) -> str:
@@ -26,52 +35,26 @@ def _extract_ollama_content(response: object) -> str:
     return (content or "").strip()
 
 
-def call_local_llm(
-    prompt: str,
-    model: str,
-    host: Optional[str] = None,
-    temperature: float = 0.2,
-) -> str:
-    client = ollama.Client(host=host or OLLAMA_HOST)
-    response = client.chat(
+def call_role_llm(role: str, prompt: str, temperature: float = 0.2, host: str | None = None) -> str:
+    if host:
+        raise RuntimeError("Local/custom Ollama host is disabled. Use Ollama Cloud only.")
+    model = get_model_for_role(role)
+    check_budget_before_call(role, estimate_tokens(prompt))
+    client = get_ollama_cloud_client()
+    started = time.time()
+    response: dict[str, Any] = client.chat(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": temperature},
+        stream=False,
     )
-    return _extract_ollama_content(response)
-
-
-def call_role_llm(
-    role: str,
-    prompt: str,
-    temperature: float = 0.2,
-    host: Optional[str] = None,
-) -> str:
-    model = get_model_for_role(role)
-    return call_local_llm(prompt=prompt, model=model, host=host, temperature=temperature)
-
-
-def call_qwen_cloud(
-    prompt: str,
-    model: str | None = None,
-    temperature: float = 0.2,
-    system_prompt: str | None = None,
-) -> str:
-    if not DASHSCOPE_API_KEY:
-        raise RuntimeError(
-            "DASHSCOPE_API_KEY is missing. Please export your Qwen cloud API key first."
-        )
-
-    client = OpenAI(api_key=DASHSCOPE_API_KEY, base_url=DASHSCOPE_BASE_URL)
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    resp = client.chat.completions.create(
-        model=model or QWEN_CLOUD_MODEL,
-        messages=messages,
-        temperature=temperature,
+    content = _extract_ollama_content(response)
+    record_llm_usage(
+        role=role,
+        model=model,
+        prompt=prompt,
+        completion=content,
+        duration_ms=int((time.time() - started) * 1000),
+        provider="ollama_cloud",
     )
-    content = resp.choices[0].message.content
-    return (content or "").strip()
+    return content

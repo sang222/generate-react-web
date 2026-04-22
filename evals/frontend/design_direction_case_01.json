@@ -1,0 +1,8 @@
+{
+  "case_id": "design_direction_case_01",
+  "skill": "fe-design-direction",
+  "input_summary": "Vague landing page brief for fintech product",
+  "expected_artifacts": ["design_direction.md", "design_tokens.json", "component_plan.md"],
+  "required_characteristics": ["specific visual thesis", "design tokens", "fallback variant logic", "anti-slop constraints"],
+  "bad_markers": ["generic gradient", "glassmorphism without reason", "fake testimonials"]
+}

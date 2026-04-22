@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "required": ["schema_version", "color", "typography", "spacing", "radius", "motion"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "color": {"type": "object"},
+    "typography": {"type": "object"},
+    "spacing": {"type": "object"},
+    "radius": {"type": "object"},
+    "motion": {"type": "object"}
+  }
+}

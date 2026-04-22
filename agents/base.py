@@ -171,31 +171,80 @@ def common_workflow_helpers(story_packet: dict | None) -> str:
     return "\n\n".join([item for item in parts if item]).strip()
 
 
-def _brownfield_corpus(project_mode: str, role: str) -> list[str]:
+def _story_complexity(story_packet: dict | None) -> int:
+    try:
+        return int((story_packet or {}).get("complexity", (story_packet or {}).get("project_level", 2)) or 2)
+    except Exception:
+        return 2
+
+
+def _loop_count(story_packet: dict | None) -> int:
+    try:
+        return int((story_packet or {}).get("loop_count", 1) or 1)
+    except Exception:
+        return 1
+
+
+def _should_include_examples(story_packet: dict | None) -> bool:
+    return _loop_count(story_packet) >= 2 or _story_complexity(story_packet) > 2
+
+
+def _brownfield_corpus(project_mode: str, role: str, story_packet: dict | None = None) -> list[str]:
     if project_mode != "existing_project":
         return []
     pack_map = {
-        "pm": ["brownfield-analyst", "change-impact-reviewer"],
+        "pm": ["brownfield-analyst"],
         "architect": ["integration-architect", "change-impact-reviewer"],
         "developer": ["safe-implementation-lane"],
         "fe_developer": ["safe-implementation-lane"],
         "be_developer": ["safe-implementation-lane"],
-        "qa": ["change-impact-reviewer", "safe-implementation-lane"],
-        "fe_reviewer": ["change-impact-reviewer", "safe-implementation-lane"],
-        "be_reviewer": ["change-impact-reviewer", "safe-implementation-lane"],
-        "integration_qa": ["integration-architect", "safe-implementation-lane"],
-        "lead": ["change-impact-reviewer", "integration-architect"],
+        "qa": ["change-impact-reviewer"],
+        "fe_reviewer": ["change-impact-reviewer"],
+        "be_reviewer": ["change-impact-reviewer"],
+        "integration_qa": ["integration-architect", "change-impact-reviewer"],
+        "lead": ["change-impact-reviewer"],
     }
-    parts = [
-        load_skill_resource("existing_project_rules.md"),
-        load_checklist("brownfield_readiness_checklist.md"),
-        load_checklist("qa_regression_checklist.md"),
-        load_rule("change_request_rules.md"),
-    ]
+    parts = [load_skill_resource("existing_project_rules.md")]
+    if role in {"pm", "architect"}:
+        parts.append(load_checklist("brownfield_readiness_checklist.md"))
+    if role in {"qa", "fe_reviewer", "be_reviewer", "integration_qa"}:
+        parts.append(load_checklist("qa_regression_checklist.md"))
+    if role in {"developer", "fe_developer", "be_developer", "qa", "fe_reviewer", "be_reviewer", "integration_qa", "lead"}:
+        parts.append(load_rule("change_request_rules.md"))
+    include_cases = _should_include_examples(story_packet)
     for skill_name in pack_map.get(role, []):
-        parts.append(load_skill_pack_bundle(skill_name, include_cases=True))
+        parts.append(load_skill_pack_bundle(skill_name, include_cases=include_cases))
     return [part for part in parts if part]
 
+
+
+def _fe_corpus(role: str, story_packet: dict | None = None) -> list[str]:
+    lanes = set((story_packet or {}).get("active_lanes", []) or [])
+    execution_mode = str((story_packet or {}).get("execution_mode", "auto") or "auto").lower()
+    is_frontend = "frontend" in lanes or execution_mode in {"frontend_only", "fullstack", "auto"}
+    if not is_frontend and role not in {"fe_developer", "fe_reviewer"}:
+        return []
+
+    include_cases = _should_include_examples(story_packet)
+    parts: list[str] = []
+
+    if role in {"pm", "architect"}:
+        parts.append(load_skill_pack_bundle("fe-design-direction", include_cases=include_cases))
+
+    if role in {"developer", "fe_developer"}:
+        parts.append(load_skill_pack_bundle("fe-ui-implementation", include_cases=include_cases))
+        parts.append(load_skill_pack_doc("fe-ui-implementation", "anti_slop_rules.md"))
+        parts.append(load_skill_pack_doc("fe-ui-implementation", "references/css_framework_policy.md"))
+        parts.append(load_skill_pack_doc("fe-ui-implementation", "references/animation_policy.md"))
+        parts.append(load_skill_pack_doc("fe-ui-implementation", "references/component_library_policy.md"))
+        parts.append(load_skill_pack_doc("fe-ui-implementation", "references/no_fake_api_protocol.md"))
+
+    if role in {"qa", "fe_reviewer", "integration_qa"}:
+        parts.append(load_skill_pack_bundle("fe-visual-review", include_cases=include_cases))
+        parts.append(load_skill_pack_doc("fe-visual-review", "anti_slop_rules.md"))
+        parts.append(load_skill_pack_doc("fe-visual-review", "references/visual_review_rubric.md"))
+
+    return [part for part in parts if part]
 
 def _role_sizing_resource(role: str) -> str:
     mapping = {
@@ -230,8 +279,9 @@ def build_prompt_resources(
         *(extra_rules or []),
         contract,
         checklist,
-        examples,
-        *_brownfield_corpus(project_mode, role),
+        (examples if _should_include_examples(story_packet) else ""),
+        *_fe_corpus(role, story_packet),
+        *_brownfield_corpus(project_mode, role, story_packet),
     ]
     return "\n\n".join(part for part in parts if part).strip()
 

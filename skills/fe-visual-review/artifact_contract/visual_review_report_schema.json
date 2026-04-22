@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "required": ["schema_version", "decision", "score", "issues", "anti_slop_flags", "retry_prompt"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "decision": {"type": "string", "enum": ["PASS", "RETRY", "BLOCKED"]},
+    "score": {"type": "object"},
+    "issues": {"type": "array"},
+    "anti_slop_flags": {"type": "array"},
+    "retry_prompt": {"type": "string"}
+  }
+}

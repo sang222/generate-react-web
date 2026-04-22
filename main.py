@@ -167,6 +167,7 @@ def main() -> int:
     parser.add_argument('--entry-skill', default='dev-team-workflow', choices=['dev-team-workflow', 'dev-team-agent', 'dev-team-setup'])
     parser.add_argument('--execution-mode', default='auto', choices=['auto', 'frontend_only', 'backend_only', 'fullstack'], help='Lane activation policy for implementation')
     parser.add_argument('--json', action='store_true', help='Print full result as JSON')
+    parser.add_argument('--use-runtime-graph', action='store_true', help='Run through the new runtime graph wrapper instead of calling legacy orchestrator directly')
     parser.add_argument('--workflow-status', action='store_true', help='Show workflow status for a project and exit')
     parser.add_argument('--list-skill-candidates', action='store_true', help='List skill candidates and exit')
     parser.add_argument('--show-skill-candidate', help='Show one skill candidate by id and exit')
@@ -181,9 +182,10 @@ def main() -> int:
     parser.add_argument('--run-skill-evals', action='store_true', help='List skill eval corpus cases and exit')
     parser.add_argument('--show-skill-eval-case', help='Show one skill eval case by id and exit')
     parser.add_argument('--show-recovery-history', action='store_true', help='Show adaptive recovery history and exit')
+    parser.add_argument('--show-token-usage', action='store_true', help='Show token usage for --project-id and --story-id')
     args = parser.parse_args()
 
-    no_direct_inputs = not any([args.task, args.task_file, args.workflow_status, args.list_skill_candidates, args.show_skill_candidate, args.review_skill_candidate, args.save_result, args.list_agents, args.list_skills, args.show_skill, args.run_skill_evals, args.show_skill_eval_case, args.show_recovery_history]) and args.project_id is None and args.epic_id is None and args.story_name is None and args.resume_from is None and args.depends_on is None
+    no_direct_inputs = not any([args.task, args.task_file, args.workflow_status, args.list_skill_candidates, args.show_skill_candidate, args.review_skill_candidate, args.save_result, args.list_agents, args.list_skills, args.show_skill, args.run_skill_evals, args.show_skill_eval_case, args.show_recovery_history, args.show_token_usage, args.use_runtime_graph]) and args.project_id is None and args.epic_id is None and args.story_name is None and args.resume_from is None and args.depends_on is None
     if args.interactive or no_direct_inputs:
         args = _interactive_collect(args)
 
@@ -228,6 +230,20 @@ def main() -> int:
         finally:
             _sys.argv = old_argv
 
+    if args.show_token_usage:
+        if not args.project_id or not args.story_id:
+            print("Q: token usage request")
+            print("A: --project-id and --story-id are required")
+            return 2
+        from scripts.show_token_usage import main as _m
+        import sys as _sys
+        old_argv = list(_sys.argv)
+        try:
+            _sys.argv = [old_argv[0], "--project-id", args.project_id, "--story-id", args.story_id]
+            return _m()
+        finally:
+            _sys.argv = old_argv
+
     if args.show_recovery_history:
         from scripts.show_recovery_history import main as _m
         import sys as _sys
@@ -261,8 +277,12 @@ def main() -> int:
         return 1
 
     try:
-        from core.orchestrator import run_orchestrator
-        result = run_orchestrator(task, project_mode=args.project_mode, project_id=args.project_id, epic_id=args.epic_id, story_id=args.story_id, story_name=args.story_name, resume_from=args.resume_from, depends_on=args.depends_on, execution_mode=args.execution_mode)
+        if args.use_runtime_graph:
+            from core.runtime.factory import run_delivery_runtime
+            result = run_delivery_runtime(task=task, project_mode=args.project_mode, project_id=args.project_id, epic_id=args.epic_id, story_id=args.story_id, story_name=args.story_name, resume_from=args.resume_from, depends_on=args.depends_on, execution_mode=args.execution_mode)
+        else:
+            from core.orchestrator import run_orchestrator
+            result = run_orchestrator(task, project_mode=args.project_mode, project_id=args.project_id, epic_id=args.epic_id, story_id=args.story_id, story_name=args.story_name, resume_from=args.resume_from, depends_on=args.depends_on, execution_mode=args.execution_mode)
     except KeyboardInterrupt:
         print('Q: workflow run')
         print('A: Interrupted')

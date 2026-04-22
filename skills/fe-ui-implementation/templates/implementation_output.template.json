@@ -1,0 +1,16 @@
+{
+  "files": [
+    {"path": "frontend/src/components/Example.tsx", "content": ""}
+  ],
+  "touched_boundary": {
+    "touched_paths": [],
+    "allowed_scope_matches": [],
+    "forbidden_scope_hits": [],
+    "locked_artifact_hits": [],
+    "new_components": [],
+    "reused_components": [],
+    "change_request_required": false,
+    "style_strategy": "existing_convention",
+    "blocked_reason": ""
+  }
+}

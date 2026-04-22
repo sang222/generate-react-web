@@ -1,0 +1,4 @@
+{
+  "artifact": "component_plan.md",
+  "required_sections": ["Target", "Components", "State handling", "Scope boundaries", "Implementation notes"]
+}

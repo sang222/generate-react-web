@@ -1,0 +1,8 @@
+{
+  "case_id": "visual_review_case_01",
+  "skill": "fe-visual-review",
+  "input_summary": "Review implemented dashboard screen against direction",
+  "expected_artifacts": ["visual_review_report.json"],
+  "required_characteristics": ["decision", "score", "issues", "anti_slop_flags", "retry_prompt"],
+  "bad_markers": ["looks good only", "no score", "no file-specific issue"]
+}

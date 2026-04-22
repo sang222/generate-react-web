@@ -35,6 +35,7 @@ from core.orchestrator_helpers.lanes import (
 )
 from core.release_rules import classify_release_status
 from core.review_service import review_merged_output
+from core.token_budget import TokenBudgetExceeded, set_token_context, sync_token_usage_to_context
 from core.story_state import (
     default_story_packet,
     ensure_artifact_locks,
@@ -383,6 +384,24 @@ def _finalize_loop(context: Dict[str, Any], memory_manager: AgentMemoryManager) 
     return False
 
 
+def _handle_token_budget_exceeded(context: Dict[str, Any], exc: TokenBudgetExceeded) -> Dict[str, Any]:
+    context["execution_error"] = str(exc)
+    context["release_status"] = "BLOCKED"
+    context["severity"] = "BLOCKER"
+    context["retry_reason"] = exc.reason_code
+    context["adaptive_recovery_block_reason"] = exc.reason_code
+    context["gate_state"] = fail_gate(
+        context["gate_state"],
+        "RECOVERY_GATE",
+        str(exc),
+        reason_code=exc.reason_code,
+    )
+    save_gate_state(context["gate_state"])
+    write_workflow_status(context, "Blocked because token budget was exceeded.")
+    sync_token_usage_to_context(context)
+    return context
+
+
 def _maybe_run_adaptive_recovery(context: Dict[str, Any]) -> bool:
     if not should_trigger_adaptive_recovery(context):
         return False
@@ -427,13 +446,23 @@ def run_orchestrator(
     context, _story_packet, ownership_map, _effective_mode = _initialize_story_context(
         task, project_mode, project_id, epic_id, story_id, story_name, resume_from, depends_on, execution_mode
     )
+    set_token_context(context)
 
     context["first_breath"] = memory_manager.ensure_first_breath(task, build_workflow_context(context, SYSTEM_TARGET))
     context["gate_state"] = load_gate_state(context["project_id"], context["epic_id"], context["story_id"])
     write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
 
-    _run_pm_phase(context, memory_manager)
-    _run_architecture_phase(context, memory_manager, ownership_map)
+    try:
+        _run_pm_phase(context, memory_manager)
+        _run_architecture_phase(context, memory_manager, ownership_map)
+    except TokenBudgetExceeded as exc:
+        _handle_token_budget_exceeded(context, exc)
+        context["final_decision"] = decide_final_decision(context)
+        sync_token_usage_to_context(context)
+        write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
+        save_run(context)
+        memory_manager.remember_run(context)
+        return context
 
     blocked = _handle_brownfield_readiness(context, ownership_map, memory_manager)
     if blocked is not None:
@@ -444,6 +473,7 @@ def run_orchestrator(
 
     for loop in range(1, MAX_LOOP + 1):
         context["loop_count"] = loop
+        context["story_packet"]["loop_count"] = loop
         context["execution_error"] = ""
         context["qa_detail"] = make_empty_qa_detail()
         context["operation"] = "generate"
@@ -451,38 +481,41 @@ def run_orchestrator(
         prepare_baseline(context)
         context["baseline_tree"] = summarize_project_tree_for(context["baseline_path"]) if context.get("baseline_path") else ""
 
-        _run_parallel_lanes(context, memory_manager, ownership_map)
-        if _handle_empty_lane_output(context, memory_manager):
-            continue
+        try:
+            _run_parallel_lanes(context, memory_manager, ownership_map)
+            if _handle_empty_lane_output(context, memory_manager):
+                continue
 
-        integration_result = integrate_and_validate_outputs(
-            context=context,
-            ownership_map=ownership_map,
-            detect_cross_lane_conflicts=detect_cross_lane_conflicts,
-            system_target=SYSTEM_TARGET,
-        )
-        if _apply_integration_result(context, integration_result, memory_manager):
-            continue
+            integration_result = integrate_and_validate_outputs(
+                context=context,
+                ownership_map=ownership_map,
+                detect_cross_lane_conflicts=detect_cross_lane_conflicts,
+                system_target=SYSTEM_TARGET,
+            )
+            if _apply_integration_result(context, integration_result, memory_manager):
+                continue
 
-        if _run_preflight_before_reviews(context):
-            append_history(context)
-            continue
+            if _run_preflight_before_reviews(context):
+                append_history(context)
+                continue
 
-        review_result = review_merged_output(
-            context=context,
-            memory_manager=memory_manager,
-            ownership_map=ownership_map,
-            active_lanes=context["active_lanes"],
-            merged_files=context["code"]["files"],
-            system_target=context.get("effective_target", SYSTEM_TARGET),
-        )
-        _apply_review_result(context, review_result)
+            review_result = review_merged_output(
+                context=context,
+                memory_manager=memory_manager,
+                ownership_map=ownership_map,
+                active_lanes=context["active_lanes"],
+                merged_files=context["code"]["files"],
+                system_target=context.get("effective_target", SYSTEM_TARGET),
+            )
+            _apply_review_result(context, review_result)
 
-        if _finalize_loop(context, memory_manager):
+            if _finalize_loop(context, memory_manager):
+                break
+            if _maybe_run_adaptive_recovery(context):
+                break
+        except TokenBudgetExceeded as exc:
+            _handle_token_budget_exceeded(context, exc)
             break
-        if _maybe_run_adaptive_recovery(context):
-            break
-
     context["project_tree"] = summarize_project_tree()
     if context["release_status"] == "DONE":
         delivery = create_story_delivery(context, DELIVERIES_DIR)
@@ -492,6 +525,7 @@ def run_orchestrator(
 
     context["final_decision"] = decide_final_decision(context)
 
+    sync_token_usage_to_context(context)
     write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
     save_run(context)
     memory_manager.remember_run(context)

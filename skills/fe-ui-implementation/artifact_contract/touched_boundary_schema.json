@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "required": ["touched_paths", "allowed_scope_matches", "forbidden_scope_hits", "locked_artifact_hits", "change_request_required", "style_strategy", "blocked_reason"],
+  "properties": {
+    "touched_paths": {"type": "array"},
+    "allowed_scope_matches": {"type": "array"},
+    "forbidden_scope_hits": {"type": "array"},
+    "locked_artifact_hits": {"type": "array"},
+    "new_components": {"type": "array"},
+    "reused_components": {"type": "array"},
+    "change_request_required": {"type": "boolean"},
+    "style_strategy": {"type": "string"},
+    "blocked_reason": {"type": "string"}
+  }
+}

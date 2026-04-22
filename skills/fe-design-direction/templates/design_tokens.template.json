@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "color": {
+    "background": "#FFFFFF",
+    "surface": "#F7F8FA",
+    "text_primary": "#111827",
+    "text_secondary": "#6B7280",
+    "accent": "#2563EB",
+    "danger": "#DC2626",
+    "success": "#16A34A"
+  },
+  "typography": {
+    "font_family": "existing-project-or-system",
+    "heading_scale": ["32", "24", "20", "16"],
+    "body_size": "14",
+    "line_height": "1.5"
+  },
+  "spacing": {"unit": 4, "scale": [4, 8, 12, 16, 24, 32, 48]},
+  "radius": {"sm": 6, "md": 10, "lg": 16},
+  "motion": {"level": "none", "rules": []}
+}
