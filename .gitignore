@@ -45,3 +45,18 @@ ehthumbs.db
 *.swp
 *~
 /output_project/
+
+# Agent runtime / memory
+.memory_store/
+_bmad/memory/
+
+# Runtime state
+state/
+project_state/
+
+# Generated project output
+output_project/
+
+# Local env
+.env
+.venv/

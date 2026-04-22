@@ -220,11 +220,31 @@ def _run_architecture_phase(context: Dict[str, Any], memory_manager: AgentMemory
     save_gate_state(context["gate_state"])
 
 
-def _handle_brownfield_readiness(context: Dict[str, Any], ownership_map: Dict[str, Any], memory_manager: AgentMemoryManager) -> Dict[str, Any] | None:
+def _handle_brownfield_readiness(
+    context: Dict[str, Any],
+    ownership_map: Dict[str, Any],
+    memory_manager: AgentMemoryManager,
+) -> Dict[str, Any] | None:
+    """Run brownfield readiness only for existing_project.
+
+    For new_project, this gate must be skipped. Otherwise frontend_only/new_project
+    runs can get stuck at BROWNFIELD_READINESS_GATE before implementation.
+    """
     if context["project_mode"] != "existing_project":
+        context["gate_state"] = pass_gate(
+            context["gate_state"],
+            "BROWNFIELD_READINESS_GATE",
+            "Skipped for new_project.",
+            [],
+        )
+        save_gate_state(context["gate_state"])
+        write_workflow_status(context, "Brownfield readiness skipped for new_project. Proceed to implementation.")
+        log_step("Skipped BROWNFIELD_READINESS_GATE for new_project.")
         return None
+
     brownfield = prepare_existing_project_artifacts(context, ownership_map, SYSTEM_TARGET)
     context.update(brownfield)
+
     context["story_packet"].update(
         {
             "existing_system_summary_path": brownfield["existing_system_summary_path"],
@@ -240,6 +260,7 @@ def _handle_brownfield_readiness(context: Dict[str, Any], ownership_map: Dict[st
             ],
         }
     )
+
     if brownfield["readiness_report"].get("ready"):
         context["gate_state"] = pass_gate(
             context["gate_state"],
@@ -256,19 +277,27 @@ def _handle_brownfield_readiness(context: Dict[str, Any], ownership_map: Dict[st
         write_workflow_status(context, "Proceed to implementation for the current story.")
         return None
 
-    context["gate_state"] = fail_gate(context["gate_state"], "BROWNFIELD_READINESS_GATE", "Existing project readiness is incomplete.", reason_code="BROWNFIELD_READINESS_INCOMPLETE")
+    context["gate_state"] = fail_gate(
+        context["gate_state"],
+        "BROWNFIELD_READINESS_GATE",
+        "Existing project readiness is incomplete.",
+        reason_code="BROWNFIELD_READINESS_INCOMPLETE",
+    )
     save_gate_state(context["gate_state"])
+
     context["execution_error"] = "[brownfield readiness failed]\nMissing information: " + ", ".join(
         brownfield["readiness_report"].get("missing_information", [])
     )
     context["release_status"] = "BLOCKED"
     context["severity"] = "BLOCKER"
     context["final_decision"] = "BLOCKED"
+
     write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
     write_workflow_status(context, "Brownfield readiness must pass before implementation can start.")
     save_run(context)
     memory_manager.remember_run(context)
     log_step(f"Finished with final decision: {context['final_decision']}")
+
     return context
 
 
@@ -469,7 +498,13 @@ def run_orchestrator(
         return blocked
 
     save_gate_state(context["gate_state"])
+    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
     write_workflow_status(context, "Proceed to implementation for the current story.")
+    log_step(
+        "Proceed to implementation. "
+        f"project_mode={context.get('project_mode')} "
+        f"current_gate={context.get('gate_state', {}).get('current_gate')}"
+    )
 
     for loop in range(1, MAX_LOOP + 1):
         context["loop_count"] = loop
