@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agents.base import compact_history, developer_resources, render_agent_context, safe_json
+from core.context_views import build_developer_context_view, render_context_view
 from core.debug import trace_block
 from core.llm import call_role_llm
 
@@ -37,12 +38,64 @@ def build_developer_prompt(
     project_mode: str = "new_project",
     ownership_map: dict | None = None,
     story_packet: dict | None = None,
+    system_target: dict | None = None,
+    compact_context: bool = False,
 ) -> str:
     retry_hint = build_dependency_retry_hint(execution_error)
     lane_guidance = {
         "frontend": "Stay inside frontend-owned paths unless a shared integration file is clearly required.",
         "backend": "Stay inside backend-owned paths unless a shared integration file is clearly required.",
     }.get(lane, "Stay inside your lane ownership boundaries.")
+
+    if compact_context:
+        context_like = {
+            "story_goal": task,
+            "task": task,
+            "story_packet": story_packet or {},
+            "effective_target": system_target or {},
+            "prd": prd,
+            "design": design,
+            "execution_error": execution_error,
+            "fix_suggestion": fix_suggestion,
+        }
+        compact_view = render_context_view(build_developer_context_view(context_like, lane))
+        return f"""
+You are the {lane.capitalize()} Developer role.
+
+Current task:
+- implement the current story safely inside the {lane} lane
+
+Highest priority order:
+1. valid output contract
+2. scope safety
+3. production UI quality
+4. minimal dependencies
+5. story completeness
+
+Read and follow these focused resources:
+{developer_resources(project_mode, execution_error, story_packet, role)}
+
+Compact implementation context:
+{compact_view}
+
+Ownership map:
+{safe_json(ownership_map or {})}
+
+Planned changes:
+{safe_json(planned_changes or {})}
+
+Current blocker bugs:
+{safe_json(bugs)}
+
+Retry hint:
+{retry_hint}
+
+Recent history:
+{compact_history(history, limit=2)}
+
+Return ONLY valid JSON with files.
+No markdown. No prose. No extra keys.
+""".strip()
 
     return f"""
 You are the {lane.capitalize()} Developer role.
@@ -74,6 +127,9 @@ Lane guidance:
 
 Story packet:
 {safe_json(story_packet or {})}
+
+System target:
+{safe_json(system_target or {})}
 
 Ownership map:
 {safe_json(ownership_map or {})}
@@ -125,6 +181,8 @@ def run_developer(
     lane: str = "frontend",
     ownership_map: dict | None = None,
     story_packet: dict | None = None,
+    system_target: dict | None = None,
+    compact_context: bool = False,
 ) -> str:
     prompt = build_developer_prompt(
         role=role,
@@ -141,6 +199,8 @@ def run_developer(
         project_mode=project_mode,
         ownership_map=ownership_map,
         story_packet=story_packet,
+        system_target=system_target,
+        compact_context=compact_context,
     )
     trace_block(f"{role.upper()} PROMPT", prompt)
     response = call_role_llm(role, prompt)

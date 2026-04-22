@@ -11,6 +11,7 @@ from core.adaptive_recovery import run_adaptive_recovery, should_trigger_adaptiv
 from core.config import get_system_target, load_module_config
 from core.decision_service import decide_final_decision
 from core.effective_target import derive_effective_target
+from core.runtime_log import log_event
 from core.executor import run_preflight_checks, run_system_check
 from core.file_manager import summarize_project_tree, summarize_project_tree_for
 from core.gates import fail_gate, load_gate_state, pass_gate, save_gate_state
@@ -124,6 +125,8 @@ def _base_context(
         "skill_candidate_ids": [],
         "working_output_dir": OUTPUT_PROJECT_DIR,
         "effective_target": SYSTEM_TARGET,
+        "execution_mode": story_packet.get("execution_mode", "auto"),
+        "compact_fe_context": False,
     }
 
 
@@ -188,8 +191,9 @@ def _initialize_story_context(
 
 
 def _run_pm_phase(context: Dict[str, Any], memory_manager: AgentMemoryManager) -> None:
-    pm_ctx = memory_manager.load_context("pm", context["task"], build_workflow_context(context, SYSTEM_TARGET))
-    context["prd"] = run_pm(task=f"{context['task']}\n\nStory packet:\n{json.dumps(context['story_packet'], ensure_ascii=False, indent=2)}", agent_context=pm_ctx)
+    log_event("PHASE", "planning", "START")
+    pm_ctx = memory_manager.load_context("pm", context["task"], build_workflow_context(context, context.get("effective_target", SYSTEM_TARGET)))
+    context["prd"] = run_pm(task=f"{context['task']}\n\nStory packet:\n{json.dumps(context['story_packet'], ensure_ascii=False, indent=2)}", agent_context=pm_ctx, story_packet=context["story_packet"])
     context["gate_state"] = pass_gate(context["gate_state"], "GATE_1_RESEARCH", "Research/brief context captured.", ["docs/brief.md"])
     context["gate_state"] = pass_gate(
         context["gate_state"],
@@ -199,10 +203,14 @@ def _run_pm_phase(context: Dict[str, Any], memory_manager: AgentMemoryManager) -
     )
     save_gate_state(context["gate_state"])
     write_workflow_status(context, "Proceed to architecture for the current story.")
+    log_event("GATE", "GATE_1_RESEARCH", "PASS")
+    log_event("GATE", "GATE_2_SPECIFICATION", "PASS")
+    log_event("PHASE", "planning", "DONE")
 
 
 def _run_architecture_phase(context: Dict[str, Any], memory_manager: AgentMemoryManager, ownership_map: Dict[str, Any]) -> None:
-    architect_ctx = memory_manager.load_context("architect", context["task"], build_workflow_context(context, SYSTEM_TARGET))
+    log_event("PHASE", "design", "START")
+    architect_ctx = memory_manager.load_context("architect", context["task"], build_workflow_context(context, context.get("effective_target", SYSTEM_TARGET)))
     context["design"] = run_architect(
         task=f"{context['task']}\n\nCurrent story packet:\n{json.dumps(context['story_packet'], ensure_ascii=False, indent=2)}\n\nOwnership map:\n{json.dumps(ownership_map, ensure_ascii=False, indent=2)}",
         prd=context["prd"],
@@ -218,33 +226,23 @@ def _run_architecture_phase(context: Dict[str, Any], memory_manager: AgentMemory
         ["docs/architecture.md", context["ownership_map_path"]],
     )
     save_gate_state(context["gate_state"])
+    log_event("GATE", "GATE_3_DESIGN", "PASS")
+    log_event("PHASE", "design", "DONE")
 
 
-def _handle_brownfield_readiness(
-    context: Dict[str, Any],
-    ownership_map: Dict[str, Any],
-    memory_manager: AgentMemoryManager,
-) -> Dict[str, Any] | None:
-    """Run brownfield readiness only for existing_project.
-
-    For new_project, this gate must be skipped. Otherwise frontend_only/new_project
-    runs can get stuck at BROWNFIELD_READINESS_GATE before implementation.
-    """
+def _handle_brownfield_readiness(context: Dict[str, Any], ownership_map: Dict[str, Any], memory_manager: AgentMemoryManager) -> Dict[str, Any] | None:
+    log_event("PHASE", "brownfield_readiness", "START")
     if context["project_mode"] != "existing_project":
-        context["gate_state"] = pass_gate(
-            context["gate_state"],
-            "BROWNFIELD_READINESS_GATE",
-            "Skipped for new_project.",
-            [],
-        )
+        context["gate_state"] = pass_gate(context["gate_state"], "BROWNFIELD_READINESS_GATE", "Skipped for new_project.", [])
+        context["current_gate"] = "GATE_4_IMPLEMENTATION"
         save_gate_state(context["gate_state"])
+        write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
         write_workflow_status(context, "Brownfield readiness skipped for new_project. Proceed to implementation.")
-        log_step("Skipped BROWNFIELD_READINESS_GATE for new_project.")
+        log_event("GATE", "BROWNFIELD_READINESS_GATE", "SKIP", "Skipped for new_project")
+        log_event("PHASE", "brownfield_readiness", "DONE")
         return None
-
     brownfield = prepare_existing_project_artifacts(context, ownership_map, SYSTEM_TARGET)
     context.update(brownfield)
-
     context["story_packet"].update(
         {
             "existing_system_summary_path": brownfield["existing_system_summary_path"],
@@ -260,7 +258,6 @@ def _handle_brownfield_readiness(
             ],
         }
     )
-
     if brownfield["readiness_report"].get("ready"):
         context["gate_state"] = pass_gate(
             context["gate_state"],
@@ -275,42 +272,61 @@ def _handle_brownfield_readiness(
         )
         save_gate_state(context["gate_state"])
         write_workflow_status(context, "Proceed to implementation for the current story.")
+        log_event("GATE", "BROWNFIELD_READINESS_GATE", "PASS")
+        log_event("PHASE", "brownfield_readiness", "DONE")
         return None
 
-    context["gate_state"] = fail_gate(
-        context["gate_state"],
-        "BROWNFIELD_READINESS_GATE",
-        "Existing project readiness is incomplete.",
-        reason_code="BROWNFIELD_READINESS_INCOMPLETE",
-    )
+    context["gate_state"] = fail_gate(context["gate_state"], "BROWNFIELD_READINESS_GATE", "Existing project readiness is incomplete.", reason_code="BROWNFIELD_READINESS_INCOMPLETE")
     save_gate_state(context["gate_state"])
-
     context["execution_error"] = "[brownfield readiness failed]\nMissing information: " + ", ".join(
         brownfield["readiness_report"].get("missing_information", [])
     )
     context["release_status"] = "BLOCKED"
     context["severity"] = "BLOCKER"
     context["final_decision"] = "BLOCKED"
-
-    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
+    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
     write_workflow_status(context, "Brownfield readiness must pass before implementation can start.")
+    log_event("GATE", "BROWNFIELD_READINESS_GATE", "FAIL", reason="BROWNFIELD_READINESS_INCOMPLETE")
     save_run(context)
     memory_manager.remember_run(context)
     log_step(f"Finished with final decision: {context['final_decision']}")
-
     return context
 
 
 
 def _run_parallel_lanes(context: Dict[str, Any], memory_manager: AgentMemoryManager, ownership_map: Dict[str, Any]) -> None:
     active_lanes = detect_needed_lanes(context["story_packet"], context["task"])
-    results = run_lane_developers_parallel(context, memory_manager, ownership_map, SYSTEM_TARGET, MAX_LOOP)
     context["active_lanes"] = active_lanes
+    context["story_packet"]["active_lanes"] = active_lanes
+    context["effective_target"] = derive_effective_target(SYSTEM_TARGET, active_lanes)
+    context["story_packet"]["system_target"] = context["effective_target"]
+    context["compact_fe_context"] = (
+        context.get("project_mode") == "new_project"
+        and context.get("story_packet", {}).get("execution_mode") == "frontend_only"
+        and int(context.get("story_packet", {}).get("project_level", 2) or 2) <= 2
+    )
+    log_event("PHASE", "implementation", "START", lanes=','.join(active_lanes), compact_fe_context=context.get("compact_fe_context"))
+    try:
+        results = run_lane_developers_parallel(context, memory_manager, ownership_map, context["effective_target"], MAX_LOOP)
+    except Exception as exc:
+        context["execution_error"] = f"lane runtime error: {exc}"
+        context["retry_reason"] = "lane_runtime_error"
+        context["release_status"] = "RETRY"
+        context["severity"] = "BLOCKER"
+        context["qa_detail"] = {"structural_bugs": [context["execution_error"]], "functional_bugs": [], "prd_gaps": [], "ui_gaps": [], "regression_bugs": []}
+        write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
+        write_workflow_status(context, f"Implementation lane failed safely: {context['execution_error']}")
+        log_event("LANE", "implementation", "ERROR", error=str(exc))
+        return
     context["fe_files"] = results.get("frontend", ([], {}))[0]
     context["be_files"] = results.get("backend", ([], {}))[0]
+    log_event("PHASE", "implementation", "DONE", fe_files=len(context.get("fe_files", [])), be_files=len(context.get("be_files", [])))
 
 
 def _handle_empty_lane_output(context: Dict[str, Any], memory_manager: AgentMemoryManager) -> bool:
+    if context.get("execution_error") and context.get("retry_reason", "").endswith("_runtime_error"):
+        append_history(context)
+        return True
     if context.get("fe_files") or context.get("be_files"):
         return False
 
@@ -382,15 +398,18 @@ def _apply_preflight_failure(context: Dict[str, Any], preflight_error: str) -> N
 
 
 def _run_preflight_before_reviews(context: Dict[str, Any]) -> bool:
-    ok, message = run_preflight_checks(output_dir=OUTPUT_PROJECT_DIR, system_target=SYSTEM_TARGET, active_lanes=context.get("active_lanes", []))
+    log_event("PHASE", "preflight", "START")
+    ok, message = run_preflight_checks(output_dir=OUTPUT_PROJECT_DIR, system_target=context.get("effective_target", SYSTEM_TARGET), active_lanes=context.get("active_lanes", []))
     if ok:
+        log_event("PHASE", "preflight", "DONE")
         return False
     _apply_preflight_failure(context, message)
     write_workflow_status(context, "Retry required for the current story (deterministic preflight failed).")
     return True
 
 def _finalize_loop(context: Dict[str, Any], memory_manager: AgentMemoryManager) -> bool:
-    success, error_message = run_system_check(output_dir=OUTPUT_PROJECT_DIR, system_target=SYSTEM_TARGET, active_lanes=context.get("active_lanes", []))
+    log_event("PHASE", "build_validation", "START")
+    success, error_message = run_system_check(output_dir=OUTPUT_PROJECT_DIR, system_target=context.get("effective_target", SYSTEM_TARGET), active_lanes=context.get("active_lanes", []))
     if context["execution_error"]:
         success = False
     if not success and not context["execution_error"]:
@@ -398,9 +417,10 @@ def _finalize_loop(context: Dict[str, Any], memory_manager: AgentMemoryManager) 
     context["retry_reason"] = "" if success else (context.get("retry_reason") or "build_failure")
     context["release_status"], context["severity"], reason = classify_release_status(context)
     context["operation"] = "release"
-    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
+    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
     run_lead_and_store_summary(context, memory_manager, reason, MAX_LOOP, SYSTEM_TARGET)
     append_history(context)
+    log_event("PHASE", "build_validation", "DONE" if success else "ERROR", error=error_message or context.get("execution_error", ""))
     if context["release_status"] == "DONE":
         context["gate_state"] = pass_gate(context["gate_state"], "GATE_4_IMPLEMENTATION", "Implementation, reviews, and integration checks passed.", ["output_project"])
         context["gate_state"] = pass_gate(context["gate_state"], "RELEASE_GATE", "Release checklist approved for current story.", ["output_project"])
@@ -469,17 +489,24 @@ def run_orchestrator(
     depends_on: List[str] | None = None,
     execution_mode: str | None = None,
 ) -> Dict[str, Any]:
+    log_event("PHASE", "bootstrap", "START")
     memory_manager = AgentMemoryManager()
     memory_manager.ensure_bootstrap()
 
     context, _story_packet, ownership_map, _effective_mode = _initialize_story_context(
         task, project_mode, project_id, epic_id, story_id, story_name, resume_from, depends_on, execution_mode
     )
+    initial_lanes = detect_needed_lanes(context["story_packet"], context["task"])
+    context["active_lanes"] = initial_lanes
+    context["story_packet"]["active_lanes"] = initial_lanes
+    context["effective_target"] = derive_effective_target(SYSTEM_TARGET, initial_lanes)
+    context["story_packet"]["system_target"] = context["effective_target"]
     set_token_context(context)
 
-    context["first_breath"] = memory_manager.ensure_first_breath(task, build_workflow_context(context, SYSTEM_TARGET))
+    context["first_breath"] = memory_manager.ensure_first_breath(task, build_workflow_context(context, context.get("effective_target", SYSTEM_TARGET)))
     context["gate_state"] = load_gate_state(context["project_id"], context["epic_id"], context["story_id"])
-    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
+    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
+    log_event("PHASE", "bootstrap", "DONE")
 
     try:
         _run_pm_phase(context, memory_manager)
@@ -488,7 +515,7 @@ def run_orchestrator(
         _handle_token_budget_exceeded(context, exc)
         context["final_decision"] = decide_final_decision(context)
         sync_token_usage_to_context(context)
-        write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
+        write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
         save_run(context)
         memory_manager.remember_run(context)
         return context
@@ -498,13 +525,7 @@ def run_orchestrator(
         return blocked
 
     save_gate_state(context["gate_state"])
-    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
     write_workflow_status(context, "Proceed to implementation for the current story.")
-    log_step(
-        "Proceed to implementation. "
-        f"project_mode={context.get('project_mode')} "
-        f"current_gate={context.get('gate_state', {}).get('current_gate')}"
-    )
 
     for loop in range(1, MAX_LOOP + 1):
         context["loop_count"] = loop
@@ -512,7 +533,7 @@ def run_orchestrator(
         context["execution_error"] = ""
         context["qa_detail"] = make_empty_qa_detail()
         context["operation"] = "generate"
-        write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
+        write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
         prepare_baseline(context)
         context["baseline_tree"] = summarize_project_tree_for(context["baseline_path"]) if context.get("baseline_path") else ""
 
@@ -525,7 +546,7 @@ def run_orchestrator(
                 context=context,
                 ownership_map=ownership_map,
                 detect_cross_lane_conflicts=detect_cross_lane_conflicts,
-                system_target=SYSTEM_TARGET,
+                system_target=context.get("effective_target", SYSTEM_TARGET),
             )
             if _apply_integration_result(context, integration_result, memory_manager):
                 continue
@@ -561,7 +582,7 @@ def run_orchestrator(
     context["final_decision"] = decide_final_decision(context)
 
     sync_token_usage_to_context(context)
-    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, SYSTEM_TARGET)
+    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
     save_run(context)
     memory_manager.remember_run(context)
     log_step(f"Finished with final decision: {context['final_decision']}")

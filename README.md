@@ -307,3 +307,14 @@ python3 main.py "Build a simple landing page" \
 This is not a big-bang refactor. The initial graph contains a `LegacyOrchestratorNode`, then future commits can extract ReviewNode, ImplementationNode, CandidateLearningNode, Bootstrap/BrownfieldNode, and Planning/DesignNode one at a time.
 
 See `docs/TDD_v31_deepagents_inspired_runtime.md`.
+
+## v32 Cloud Runtime Hardening
+
+Use `python3.12`, install with `python -m pip`, configure `.env`, then run:
+
+```bash
+python3.12 scripts/check_env.py
+python3.12 scripts/check_models.py
+```
+
+See `docs/RUN_CLOUD.md`.

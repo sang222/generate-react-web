@@ -19,33 +19,37 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / '_bmad' / 'config.yaml'
 DEFAULT_ENV_PATH = PROJECT_ROOT / '.env'
 
-if load_dotenv is not None:
-    load_dotenv(DEFAULT_ENV_PATH, override=False)
+def load_env() -> None:
+    if load_dotenv is not None:
+        load_dotenv(DEFAULT_ENV_PATH, override=False)
+
+load_env()
 
 
-def _get_role_model_map() -> Dict[str, str]:
-    default_model = os.getenv('DEFAULT_MODEL', 'qwen2.5:3b')
+def get_role_model_map() -> Dict[str, str]:
+    load_env()
+    default_model = os.getenv('DEFAULT_MODEL', 'qwen3.5:cloud')
     return {
         'pm': os.getenv('PM_MODEL', os.getenv('GLM4_MODEL', default_model)),
         'architect': os.getenv('ARCHITECT_MODEL', default_model),
-        'developer': os.getenv('DEVELOPER_MODEL', 'qwen3-coder:30b'),
-        'fe_developer': os.getenv('FE_DEVELOPER_MODEL', os.getenv('DEVELOPER_MODEL', 'qwen3-coder:30b')),
-        'be_developer': os.getenv('BE_DEVELOPER_MODEL', os.getenv('DEVELOPER_MODEL', 'qwen3-coder:30b')),
-        'qa': os.getenv('QA_MODEL', 'qwen3:8b'),
-        'fe_reviewer': os.getenv('FE_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
-        'be_reviewer': os.getenv('BE_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
-        'integration_qa': os.getenv('INTEGRATION_QA_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
-        'lead': os.getenv('LEAD_MODEL', 'llama3.2:3b'),
-        'recovery_meta': os.getenv('RECOVERY_META_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
-        'skill_reviewer': os.getenv('SKILL_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3:8b')),
+        'developer': os.getenv('DEVELOPER_MODEL', 'qwen3-coder:480b-cloud'),
+        'fe_developer': os.getenv('FE_DEVELOPER_MODEL', os.getenv('DEVELOPER_MODEL', 'qwen3-coder:480b-cloud')),
+        'be_developer': os.getenv('BE_DEVELOPER_MODEL', os.getenv('DEVELOPER_MODEL', 'qwen3-coder:480b-cloud')),
+        'qa': os.getenv('QA_MODEL', 'qwen3.5:cloud'),
+        'fe_reviewer': os.getenv('FE_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
+        'be_reviewer': os.getenv('BE_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
+        'integration_qa': os.getenv('INTEGRATION_QA_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
+        'lead': os.getenv('LEAD_MODEL', 'qwen3.5:cloud'),
+        'recovery_meta': os.getenv('RECOVERY_META_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
+        'skill_reviewer': os.getenv('SKILL_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
     }
 
 
-ROLE_MODEL_MAP = _get_role_model_map()
+ROLE_MODEL_MAP = get_role_model_map()
 
 
 def get_model_for_role(role: str) -> str:
-    return ROLE_MODEL_MAP.get(role, os.getenv('DEFAULT_MODEL', 'qwen2.5:3b'))
+    return get_role_model_map().get(role, os.getenv('DEFAULT_MODEL', 'qwen3.5:cloud'))
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -119,7 +123,7 @@ def load_module_config() -> Dict[str, Any]:
 
     # Backward-compatible flat aliases used by some older code/resources.
     config.setdefault('devteam', {})['frontend_stack'] = frontend['stack']
-    config['models'] = _get_role_model_map()
+    config['models'] = get_role_model_map()
     return config
 
 

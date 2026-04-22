@@ -1,112 +1,39 @@
 from __future__ import annotations
-
-import os
 import time
-
-from dotenv import load_dotenv
-from ollama import ChatResponse, Client
-
-from core.config import get_model_for_role
+from pathlib import Path
+from typing import Any
+from ollama import Client
+from core.config import get_model_for_role, load_env
+from core.runtime_log import append_jsonl, log_event
 from core.token_budget import check_budget_before_call, estimate_tokens, record_llm_usage
-
-load_dotenv()
-
-OLLAMA_CLOUD_HOST = "https://ollama.com"
-
-
+OLLAMA_CLOUD_HOST = 'https://ollama.com'
 def get_ollama_cloud_client() -> Client:
-    """Return an Ollama Cloud client.
-
-    This repo intentionally uses Ollama Cloud only. Local Ollama fallback was removed
-    so production cost control can be centralized through token telemetry/budgets.
-    """
-    api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+    import os
+    load_env(); api_key = os.getenv('OLLAMA_API_KEY', '').strip()
     if not api_key:
-        raise RuntimeError("OLLAMA_API_KEY is required for Ollama Cloud")
-
-    return Client(
-        host=OLLAMA_CLOUD_HOST,
-        headers={"Authorization": f"Bearer {api_key}"},
-    )
-
-
-def _extract_ollama_content(response: ChatResponse | dict[str, object] | object) -> str:
-    """Extract assistant text from Ollama response.
-
-    Supports both the new typed ChatResponse object and older dict-like responses.
-    """
+        raise RuntimeError('OLLAMA_API_KEY is required for Ollama Cloud. Check .env or run scripts/check_env.py')
+    return Client(host=OLLAMA_CLOUD_HOST, headers={'Authorization': f'Bearer {api_key}'})
+def _extract_ollama_content(response: object) -> str:
     if isinstance(response, dict):
-        message = response.get("message", {})
-        if isinstance(message, dict):
-            return str(message.get("content", "") or "").strip()
-        return ""
-
-    message = getattr(response, "message", None)
-    if message is None:
-        return ""
-
-    content = getattr(message, "content", "") or ""
-    return str(content).strip()
-
-
-def call_role_llm(
-    role: str,
-    prompt: str,
-    temperature: float = 0.2,
-    host: str | None = None,
-) -> str:
-    """Call the configured Ollama Cloud model for a role."""
+        return ((response.get('message', {}) or {}).get('content', '') or '').strip()
+    message = getattr(response, 'message', None)
+    content = getattr(message, 'content', '') if message else ''
+    return (content or '').strip()
+def call_role_llm(role: str, prompt: str, temperature: float = 0.2, host: str | None = None) -> str:
     if host:
-        raise RuntimeError("Local/custom Ollama host is disabled. Use Ollama Cloud only.")
-
-    model = get_model_for_role(role)
-    prompt_tokens = estimate_tokens(prompt)
-
+        raise RuntimeError('Local/custom Ollama host is disabled. Use Ollama Cloud only.')
+    load_env(); model = get_model_for_role(role); prompt_tokens = estimate_tokens(prompt)
     check_budget_before_call(role, prompt_tokens)
-
-    client = get_ollama_cloud_client()
-    started = time.time()
-
-    print(
-        f"\n[LLM:START] role={role} model={model} prompt_tokens~={prompt_tokens}",
-        flush=True,
-    )
-
+    client = get_ollama_cloud_client(); started = time.time()
+    log_event('LLM', role, 'START', model=model, prompt_tokens=prompt_tokens)
     try:
-        response: ChatResponse = client.chat(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            options={"temperature": temperature},
-            stream=False,
-        )
-
-        content = _extract_ollama_content(response)
-        duration_ms = int((time.time() - started) * 1000)
-
-        print(
-            f"[LLM:DONE] role={role} model={model} "
-            f"output_chars={len(content)} duration_ms={duration_ms}",
-            flush=True,
-        )
-
-        record_llm_usage(
-            role=role,
-            model=model,
-            prompt=prompt,
-            completion=content,
-            duration_ms=duration_ms,
-            provider="ollama_cloud",
-        )
-
+        response: dict[str, Any] = client.chat(model=model, messages=[{'role': 'user', 'content': prompt}], options={'temperature': temperature}, stream=False)
+        content = _extract_ollama_content(response); duration_ms = int((time.time() - started) * 1000)
+        record_llm_usage(role=role, model=model, prompt=prompt, completion=content, duration_ms=duration_ms, provider='ollama_cloud')
+        log_event('LLM', role, 'DONE', model=model, duration_ms=duration_ms, output_chars=len(content))
         return content
-
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
-
-        print(
-            f"[LLM:ERROR] role={role} model={model} "
-            f"duration_ms={duration_ms} error={exc}",
-            flush=True,
-        )
-
+        log_event('LLM', role, 'ERROR', model=model, duration_ms=duration_ms, error=str(exc))
+        append_jsonl(Path('state') / 'llm_errors.jsonl', {'role': role, 'model': model, 'prompt_tokens_estimate': prompt_tokens, 'duration_ms': duration_ms, 'error': str(exc)})
         raise

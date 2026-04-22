@@ -12,6 +12,8 @@ from memory.manager import AgentMemoryManager
 from core.ownership import lane_files
 from core.utils.json_utils import extract_json_object, normalize_files
 from .context import build_planned_changes, build_workflow_context, log_step
+from core.runtime_log import log_event
+from core.effective_target import derive_effective_target
 
 
 from core.lane_detection import detect_needed_lanes
@@ -37,8 +39,10 @@ def run_lead_and_store_summary(context: Dict[str, Any], memory_manager: AgentMem
 
 
 def run_lane_developer(context: Dict[str, Any], memory_manager: AgentMemoryManager, lane: str, role: str, ownership_map: Dict[str, Any], system_target: Dict[str, Any], max_loop: int) -> tuple[list[dict], dict]:
-    dev_ctx = memory_manager.load_context(role, context["task"], build_workflow_context(context, system_target))
+    effective_target = context.get("effective_target") or derive_effective_target(system_target, context.get("active_lanes", []))
+    dev_ctx = memory_manager.load_context(role, context["task"], build_workflow_context(context, effective_target))
     log_step(f"Loop {context['loop_count']}/{max_loop} - Running {role}")
+    log_event("LANE", lane, "START", role=role, loop=context.get("loop_count", 0))
     task = context["task"]
     if context.get("baseline_tree"):
         task += f"\n\nExisting baseline tree:\n{context['baseline_tree']}"
@@ -57,9 +61,13 @@ def run_lane_developer(context: Dict[str, Any], memory_manager: AgentMemoryManag
         lane=lane,
         ownership_map=ownership_map,
         story_packet=context["story_packet"],
+        system_target=effective_target,
+        compact_context=bool(context.get("compact_fe_context") and lane == "frontend"),
     )
     result = extract_json_object(raw)
-    return normalize_files(result), result
+    files = normalize_files(result)
+    log_event("LANE", lane, "DONE", role=role, files=len(files))
+    return files, result
 
 
 def run_lane_developers_parallel(context: Dict[str, Any], memory_manager: AgentMemoryManager, ownership_map: Dict[str, Any], system_target: Dict[str, Any], max_loop: int) -> Dict[str, tuple[list[dict], dict]]:
@@ -84,12 +92,17 @@ def run_lane_developers_parallel(context: Dict[str, Any], memory_manager: AgentM
         }
         for future in as_completed(future_map):
             lane = future_map[future]
-            results[lane] = future.result()
+            try:
+                results[lane] = future.result()
+            except Exception as exc:
+                log_event("LANE", lane, "ERROR", error=str(exc))
+                raise
     return results
 
 
 def run_lane_review(context: Dict[str, Any], memory_manager: AgentMemoryManager, lane: str, role: str, code: dict, system_target: Dict[str, Any]) -> dict:
     qa_ctx = memory_manager.load_context(role, context["task"], build_workflow_context(context, system_target))
+    log_event("LLM", role, "START", phase="lane_review", lane=lane)
     raw = run_qa(
         task=context["task"],
         prd=context["prd"],
@@ -102,6 +115,7 @@ def run_lane_review(context: Dict[str, Any], memory_manager: AgentMemoryManager,
         story_packet=context["story_packet"],
     )
     res = extract_json_object(raw)
+    log_event("LLM", role, "DONE", phase="lane_review", lane=lane)
     return {
         "structural_bugs": res.get("structural_bugs", []) or [],
         "functional_bugs": res.get("functional_bugs", []) or [],
