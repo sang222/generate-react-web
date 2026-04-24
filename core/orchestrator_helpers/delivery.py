@@ -9,38 +9,150 @@ from core.file_manager import copy_tree, summarize_project_tree_for, OUTPUT_DIR
 from core.story_state import lock_artifacts, update_delivery_index
 
 
-def find_missing_required_files_in_output(system_target: Dict[str, Any]) -> List[str]:
-    required: List[str] = []
+def _normalize_required_path(path: str) -> str:
+    return str(path).replace("\\", "/").lstrip("./")
+
+
+def required_files_for_target(system_target: Dict[str, Any]) -> List[str]:
     effective_mode = system_target.get("effective_mode")
+    frontend_root = _normalize_required_path(system_target.get("frontend_root", "frontend"))
+
+    def fe(path: str) -> str:
+        if frontend_root in {"", "."}:
+            return path
+        return f"{frontend_root}/{path}"
+
     if effective_mode == "frontend_only":
-        required.extend([
+        return [
+            fe("package.json"),
+            fe("index.html"),
+            fe("src/main.jsx"),
+            fe("src/App.jsx"),
+            fe("src/index.css"),
+        ]
+
+    if effective_mode == "backend_only":
+        return [
+            "backend/build.gradle",
+            "backend/src/main/resources/application.properties",
+        ]
+
+    if system_target.get("system_type") == "fullstack_website":
+        return [
             "frontend/package.json",
             "frontend/index.html",
             "frontend/src/main.jsx",
             "frontend/src/App.jsx",
-        ])
-    elif effective_mode == "backend_only":
-        required.extend([
+            "frontend/src/index.css",
             "backend/build.gradle",
             "backend/src/main/resources/application.properties",
-        ])
-    elif system_target.get("system_type") == "fullstack_website":
-        required.extend([
-            "frontend/package.json",
-            "frontend/index.html",
-            "frontend/src/main.jsx",
-            "frontend/src/App.jsx",
-            "backend/build.gradle",
-            "backend/src/main/resources/application.properties",
-        ])
-    else:
-        required.extend([
-            "package.json",
-            "index.html",
-            "src/main.jsx",
-            "src/App.jsx",
-        ])
-    return sorted(path for path in required if not (OUTPUT_DIR / path).exists())
+        ]
+
+    return [
+        "package.json",
+        "index.html",
+        "src/main.jsx",
+        "src/App.jsx",
+        "src/index.css",
+    ]
+
+
+def find_missing_required_files_in_files(
+    files: List[Dict[str, Any]],
+    system_target: Dict[str, Any],
+) -> List[str]:
+    generated_paths = {
+        _normalize_required_path(item.get("path", ""))
+        for item in files
+        if item.get("path")
+    }
+
+    return sorted(
+        path
+        for path in required_files_for_target(system_target)
+        if path not in generated_paths
+    )
+
+
+def find_missing_required_files_in_output(system_target: Dict[str, Any]) -> List[str]:
+    return sorted(
+        path
+        for path in required_files_for_target(system_target)
+        if not (OUTPUT_DIR / path).exists()
+    )
+
+
+def normalize_files_for_target(
+    files: List[Dict[str, Any]],
+    system_target: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Normalize generated file paths to the active runtime file contract.
+
+    For frontend_only new projects, the accepted Vite app root is output_project/.
+    Some FE skill examples still show frontend/... paths, and models may also wrap
+    the app in a single top-level folder. Strip exactly one common wrapper prefix
+    only when that prefix contains the full required root Vite set.
+    """
+    effective_mode = system_target.get("effective_mode")
+    frontend_root = _normalize_required_path(system_target.get("frontend_root", "frontend"))
+
+    if effective_mode != "frontend_only" or frontend_root not in {"", "."}:
+        return files
+
+    required_suffixes = [
+        "package.json",
+        "index.html",
+        "src/main.jsx",
+        "src/App.jsx",
+        "src/index.css",
+    ]
+
+    normalized_items: List[Dict[str, Any]] = []
+    path_to_item: Dict[str, Dict[str, Any]] = {}
+
+    for item in files or []:
+        if not isinstance(item, dict):
+            continue
+        path = _normalize_required_path(item.get("path", ""))
+        content = item.get("content")
+        if not path or not isinstance(content, str):
+            continue
+        cloned = dict(item)
+        cloned["path"] = path
+        normalized_items.append(cloned)
+        path_to_item[path] = cloned
+
+    if all(suffix in path_to_item for suffix in required_suffixes):
+        return normalized_items
+
+    prefixes: set[str] = set()
+    for path in path_to_item:
+        parts = path.split("/")
+        if len(parts) > 1:
+            prefixes.add(parts[0])
+
+    candidate_prefix = None
+    for prefix in sorted(prefixes):
+        if all(f"{prefix}/{suffix}" in path_to_item for suffix in required_suffixes):
+            candidate_prefix = prefix
+            break
+
+    if not candidate_prefix:
+        return normalized_items
+
+    rewritten: List[Dict[str, Any]] = []
+    marker = candidate_prefix + "/"
+
+    for item in normalized_items:
+        cloned = dict(item)
+        path = _normalize_required_path(cloned.get("path", ""))
+        if path.startswith(marker):
+            cloned["path"] = path[len(marker):]
+        else:
+            cloned["path"] = path
+        rewritten.append(cloned)
+
+    return rewritten
 
 
 def create_story_delivery(context: Dict[str, Any], deliveries_dir: Path) -> Dict[str, Any]:

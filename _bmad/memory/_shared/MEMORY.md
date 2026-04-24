@@ -1,6 +1,8 @@
 # Shared Module Memory
 
-Keep this concise. Only durable project-wide lessons and conventions belong here.
+Shared module memory
+
+Keep this file concise. Durable lessons only.
 
 ## Lessons
-- None recorded yet.
+- Recurring blocker to watch: Missing required files after applying this story: frontend/index.html, frontend/package.json, frontend/src/App.jsx, frontend/src/main.jsx

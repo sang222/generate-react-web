@@ -17,7 +17,7 @@ def compact_story_packet_for_lane(story_packet: Dict[str, Any], lane: str) -> Di
     return {key: story_packet.get(key) for key in keys if key in story_packet}
 def compact_effective_target_for_lane(system_target: Dict[str, Any], lane: str) -> Dict[str, Any]:
     if lane == 'frontend':
-        return {'system_type': system_target.get('system_type', 'web_app'), 'effective_mode': system_target.get('effective_mode', 'frontend_only'), 'frontend_stack': system_target.get('frontend_stack', 'react-vite')}
+        return {'system_type': system_target.get('system_type', 'web_app'), 'effective_mode': system_target.get('effective_mode', 'frontend_only'), 'frontend_stack': system_target.get('frontend_stack', 'react-vite'), 'frontend_root': system_target.get('frontend_root', '.'), 'required_files': system_target.get('required_files', [])}
     if lane == 'backend':
         return {'system_type': system_target.get('system_type', 'api'), 'effective_mode': system_target.get('effective_mode', 'backend_only'), 'backend_language': system_target.get('backend_language', 'java'), 'backend_framework': system_target.get('backend_framework', 'spring_boot'), 'backend_build_tool': system_target.get('backend_build_tool', 'gradle'), 'database_engine': system_target.get('database_engine', 'postgres'), 'database_orm': system_target.get('database_orm', 'jpa')}
     return dict(system_target or {})

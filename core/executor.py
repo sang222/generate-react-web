@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+from core.effective_target import derive_effective_target
 
 OUTPUT_DIR = "output_project"
 NPM_INSTALL_TIMEOUT = 240
@@ -97,8 +98,17 @@ def _has_cmd(cmd: str) -> bool:
 
 
 def _frontend_root(project_dir: Path, system_target: Dict[str, str]) -> Path:
+    frontend_root = str(system_target.get("frontend_root", "") or "").strip()
+
+    if frontend_root in {"", "."}:
+        return project_dir
+
+    if frontend_root:
+        return project_dir / frontend_root
+
     if system_target.get("system_type") == "fullstack_website":
         return project_dir / "frontend"
+
     return project_dir
 
 
@@ -113,6 +123,7 @@ def _validate_frontend_files(project_dir: Path, system_target: Dict[str, str]) -
         root / "index.html",
         root / "src" / "main.jsx",
         root / "src" / "App.jsx",
+        root / "src" / "index.css",
     ]
     missing = [str(p.relative_to(project_dir)) for p in required if not p.exists()]
     if missing:

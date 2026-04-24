@@ -62,3 +62,5 @@ output_project/
 .venv/
 /.runs/
 /_bmad/
+/skill_candidates/
+/skill_history/

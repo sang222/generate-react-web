@@ -72,6 +72,11 @@ Highest priority order:
 4. minimal dependencies
 5. story completeness
 
+Frontend-only root Vite file contract:
+- If lane=frontend and effective_target.effective_mode=frontend_only and effective_target.frontend_root='.', return paths at app root.
+- Required paths are exactly: package.json, index.html, src/main.jsx, src/App.jsx, src/index.css.
+- Do NOT prefix these files with frontend/, app/, web/, client/, or project-name/.
+
 Read and follow these focused resources:
 {developer_resources(project_mode, execution_error, story_packet, role)}
 
@@ -109,6 +114,11 @@ Highest priority order:
 3. baseline preservation
 4. minimal dependencies
 5. story completeness
+
+Frontend-only root Vite file contract:
+- If lane=frontend and system_target.effective_mode=frontend_only and system_target.frontend_root='.', return paths at app root.
+- Required paths are exactly: package.json, index.html, src/main.jsx, src/App.jsx, src/index.css.
+- Do NOT prefix these files with frontend/, app/, web/, client/, or project-name/.
 
 Read and follow these resources:
 {developer_resources(project_mode, execution_error, story_packet, role)}

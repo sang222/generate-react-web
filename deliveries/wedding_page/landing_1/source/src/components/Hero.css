@@ -1,0 +1,33 @@
+.hero {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f5f7f0 0%, #e8eadd 100%);
+  text-align: center;
+  padding: 2rem;
+}
+
+.hero-content {
+  max-width: 600px;
+}
+
+.hero-title {
+  font-family: 'Georgia', serif;
+  font-size: 3.5rem;
+  color: #3a3a3a;
+  margin-bottom: 1.5rem;
+  line-height: 1.2;
+}
+
+.hero-date {
+  font-size: 1.25rem;
+  color: #6b7a6b;
+  font-weight: 500;
+}
+
+@media (min-width: 768px) {
+  .hero-title {
+    font-size: 5rem;
+  }
+}

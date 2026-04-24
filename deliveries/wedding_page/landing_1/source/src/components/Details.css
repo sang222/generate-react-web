@@ -1,0 +1,36 @@
+.details {
+  padding: 4rem 2rem;
+  background-color: #fdfcf8;
+  text-align: center;
+}
+
+.details-content {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.details-heading {
+  font-family: 'Georgia', serif;
+  font-size: 2.5rem;
+  color: #3a3a3a;
+  margin-bottom: 3rem;
+}
+
+.detail-item {
+  margin-bottom: 2rem;
+}
+
+.detail-label {
+  display: block;
+  font-size: 0.875rem;
+  color: #8a8a8a;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.detail-value {
+  font-size: 1.25rem;
+  color: #3a3a3a;
+  font-weight: 500;
+}

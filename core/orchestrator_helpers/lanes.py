@@ -14,13 +14,66 @@ from core.utils.json_utils import extract_json_object, normalize_files
 from .context import build_planned_changes, build_workflow_context, log_step
 from core.runtime_log import log_event
 from core.effective_target import derive_effective_target
+from core.orchestrator_helpers.delivery import normalize_files_for_target
 
 
 from core.lane_detection import detect_needed_lanes
 
-def run_lead_and_store_summary(context: Dict[str, Any], memory_manager: AgentMemoryManager, rule_reason: str, max_loop: int, system_target: Dict[str, Any]) -> None:
-    log_step(f"Loop {context['loop_count']}/{max_loop} - Running Lead (status={context['release_status']}, severity={context['severity']})")
-    lead_ctx = memory_manager.load_context("lead", task=context["task"], workflow_context=build_workflow_context(context, system_target))
+def run_lead_and_store_summary(
+    context: Dict[str, Any],
+    memory_manager: AgentMemoryManager,
+    rule_reason: str,
+    max_loop: int,
+    system_target: Dict[str, Any],
+) -> None:
+    if context.get("retry_reason") == "missing_required_files":
+        execution_error = context.get("execution_error", "") or (
+            "Missing required files after applying this story."
+        )
+
+        fix_suggestion = context.get("fix_suggestion", "") or (
+            "Regenerate the implementation using the active runtime file contract. "
+            "For frontend_only new_project, generate a root Vite app with: "
+            "package.json, index.html, src/main.jsx, src/App.jsx, src/index.css."
+        )
+
+        context["lead_summary"] = {
+            "decision": "RETRY",
+            "release_status": "RETRY",
+            "severity": "BLOCKER",
+            "reason": execution_error,
+            "fix_suggestion": fix_suggestion,
+            "deterministic": True,
+            "retry_reason": "missing_required_files",
+        }
+
+        context["release_status"] = "RETRY"
+        context["severity"] = "BLOCKER"
+        context["execution_error"] = execution_error
+        context["fix_suggestion"] = fix_suggestion
+
+        log_event(
+            "RELEASE",
+            "DECISION",
+            "RETRY",
+            severity="BLOCKER",
+            reason="missing_required_files",
+            deterministic=True,
+        )
+
+        return
+
+    log_step(
+        f"Loop {context['loop_count']}/{max_loop} - Running Lead "
+        f"(status={context['release_status']}, severity={context['severity']})"
+    )
+
+    lead_ctx = memory_manager.load_context(
+        "lead",
+        task=context["task"],
+        workflow_context=build_workflow_context(context, system_target),
+    )
+
     lead_raw = run_lead(
         task=context["task"],
         prd=context["prd"],
@@ -30,13 +83,17 @@ def run_lead_and_store_summary(context: Dict[str, Any], memory_manager: AgentMem
         execution_error=context["execution_error"],
         loop_count=context["loop_count"],
         max_loop=max_loop,
-        rule_result={"release_status": context["release_status"], "severity": context["severity"], "reason": rule_reason},
+        rule_result={
+            "release_status": context["release_status"],
+            "severity": context["severity"],
+            "reason": rule_reason,
+        },
         history=context["history"],
         agent_context=lead_ctx,
         story_packet=context.get("story_packet", {}),
     )
-    context["lead_summary"] = extract_json_object(lead_raw)
 
+    context["lead_summary"] = extract_json_object(lead_raw)
 
 def run_lane_developer(context: Dict[str, Any], memory_manager: AgentMemoryManager, lane: str, role: str, ownership_map: Dict[str, Any], system_target: Dict[str, Any], max_loop: int) -> tuple[list[dict], dict]:
     effective_target = context.get("effective_target") or derive_effective_target(system_target, context.get("active_lanes", []))
@@ -66,6 +123,7 @@ def run_lane_developer(context: Dict[str, Any], memory_manager: AgentMemoryManag
     )
     result = extract_json_object(raw)
     files = normalize_files(result)
+    files = normalize_files_for_target(files, effective_target)
     log_event("LANE", lane, "DONE", role=role, files=len(files))
     return files, result
 
