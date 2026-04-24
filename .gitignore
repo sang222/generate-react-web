@@ -60,3 +60,5 @@ output_project/
 # Local env
 .env
 .venv/
+/.runs/
+/_bmad/
