@@ -26,22 +26,49 @@ def load_env() -> None:
 load_env()
 
 
+from typing import Dict
+import os
+
 def get_role_model_map() -> Dict[str, str]:
     load_env()
-    default_model = os.getenv('DEFAULT_MODEL', 'qwen3.5:cloud')
+
+    # Default profile:
+    # - qwen3.5:cloud: planning / QA / skill review
+    # - glm-5.1:cloud: architect / lead / recovery / integration reasoning
+    # - qwen3-coder-next:cloud: implementation lanes
+    default_model = os.getenv("DEFAULT_MODEL", "qwen3.5:cloud")
+    default_reasoning_model = os.getenv(
+        "DEFAULT_REASONING_MODEL",
+        os.getenv("GLM_MODEL", "glm-5.1:cloud"),
+    )
+    default_coder_model = os.getenv(
+        "DEFAULT_CODER_MODEL",
+        os.getenv("DEVELOPER_MODEL", "qwen3-coder-next:cloud"),
+    )
+    default_qa_model = os.getenv("DEFAULT_QA_MODEL", os.getenv("QA_MODEL", default_model))
+
     return {
-        'pm': os.getenv('PM_MODEL', os.getenv('GLM4_MODEL', default_model)),
-        'architect': os.getenv('ARCHITECT_MODEL', default_model),
-        'developer': os.getenv('DEVELOPER_MODEL', 'qwen3-coder:480b-cloud'),
-        'fe_developer': os.getenv('FE_DEVELOPER_MODEL', os.getenv('DEVELOPER_MODEL', 'qwen3-coder:480b-cloud')),
-        'be_developer': os.getenv('BE_DEVELOPER_MODEL', os.getenv('DEVELOPER_MODEL', 'qwen3-coder:480b-cloud')),
-        'qa': os.getenv('QA_MODEL', 'qwen3.5:cloud'),
-        'fe_reviewer': os.getenv('FE_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
-        'be_reviewer': os.getenv('BE_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
-        'integration_qa': os.getenv('INTEGRATION_QA_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
-        'lead': os.getenv('LEAD_MODEL', 'qwen3.5:cloud'),
-        'recovery_meta': os.getenv('RECOVERY_META_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
-        'skill_reviewer': os.getenv('SKILL_REVIEWER_MODEL', os.getenv('QA_MODEL', 'qwen3.5:cloud')),
+        # Planning / product reasoning
+        "pm": os.getenv("PM_MODEL", default_model),
+
+        # Architecture / system design
+        "architect": os.getenv("ARCHITECT_MODEL", default_reasoning_model),
+
+        # Implementation lanes
+        "developer": os.getenv("DEVELOPER_MODEL", default_coder_model),
+        "fe_developer": os.getenv("FE_DEVELOPER_MODEL", default_coder_model),
+        "be_developer": os.getenv("BE_DEVELOPER_MODEL", default_coder_model),
+
+        # QA / reviewers
+        "qa": os.getenv("QA_MODEL", default_qa_model),
+        "fe_reviewer": os.getenv("FE_REVIEWER_MODEL", default_qa_model),
+        "be_reviewer": os.getenv("BE_REVIEWER_MODEL", default_reasoning_model),
+        "integration_qa": os.getenv("INTEGRATION_QA_MODEL", default_reasoning_model),
+
+        # Release / recovery / skill review
+        "lead": os.getenv("LEAD_MODEL", default_reasoning_model),
+        "recovery_meta": os.getenv("RECOVERY_META_MODEL", default_reasoning_model),
+        "skill_reviewer": os.getenv("SKILL_REVIEWER_MODEL", default_qa_model),
     }
 
 
