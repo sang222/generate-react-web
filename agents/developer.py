@@ -9,6 +9,20 @@ from core.llm import call_role_llm
 def build_dependency_retry_hint(execution_error: str) -> str:
     err = (execution_error or "").lower()
     if (
+        "invalid_project_json" in err
+        or "no valid files could be extracted" in err
+        or "invalid/truncated project json" in err
+        or "empty or invalid json" in err
+    ):
+        return """
+Retry focus:
+- previous output was not parseable into files
+- return ONLY valid JSON with a top-level files array
+- no markdown, no prose, no code fences
+- keep this retry smaller than the previous attempt
+- include only required runnable files first, then a few small supporting files if needed
+""".strip()
+    if (
         "eresolve" in err
         or "peer react" in err
         or "react-virtualized" in err

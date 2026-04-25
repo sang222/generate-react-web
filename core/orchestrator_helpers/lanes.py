@@ -13,6 +13,7 @@ from core.ownership import lane_files
 from core.utils.json_utils import extract_json_object, normalize_files
 from .context import build_planned_changes, build_workflow_context, log_step
 from core.runtime_log import log_event
+from core.debug_outputs import persist_bad_llm_output
 from core.effective_target import derive_effective_target
 from core.orchestrator_helpers.delivery import normalize_files_for_target
 
@@ -124,9 +125,42 @@ def run_lane_developer(context: Dict[str, Any], memory_manager: AgentMemoryManag
     result = extract_json_object(raw)
     files = normalize_files(result)
     files = normalize_files_for_target(files, effective_target)
+
+    result["__lane"] = lane
+    result["__role"] = role
+    result["__raw_output_chars"] = len(raw or "")
+    result["__parsed_files"] = len(files)
+    result["__parsed_paths"] = [item.get("path", "") for item in files[:12]]
+
+    if raw and not files:
+        debug_path = persist_bad_llm_output(
+            context=context,
+            role=role,
+            raw_output=raw,
+            reason="no_files_extracted",
+        )
+        result["__debug_output_path"] = debug_path
+        log_event(
+            "VALIDATION",
+            lane,
+            "FAIL",
+            reason="invalid_project_json",
+            role=role,
+            output_chars=len(raw),
+            debug_output=debug_path,
+        )
+    else:
+        log_event(
+            "LANE",
+            lane,
+            "PARSE",
+            role=role,
+            parsed_files=len(files),
+            paths=",".join(result["__parsed_paths"][:8]),
+        )
+
     log_event("LANE", lane, "DONE", role=role, files=len(files))
     return files, result
-
 
 def run_lane_developers_parallel(context: Dict[str, Any], memory_manager: AgentMemoryManager, ownership_map: Dict[str, Any], system_target: Dict[str, Any], max_loop: int) -> Dict[str, tuple[list[dict], dict]]:
     active_lanes = detect_needed_lanes(context["story_packet"], context["task"])

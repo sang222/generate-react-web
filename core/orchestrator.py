@@ -36,6 +36,8 @@ from core.orchestrator_helpers.lanes import (
 )
 from core.release_rules import classify_release_status
 from core.review_service import review_merged_output
+from core.retry_policy import append_retry_history, is_developer_self_retry_allowed, should_run_lead
+from core.story_sizing import evaluate_story_size, format_story_split
 from core.token_budget import TokenBudgetExceeded, set_token_context, sync_token_usage_to_context
 from core.story_state import (
     default_story_packet,
@@ -294,6 +296,68 @@ def _handle_brownfield_readiness(context: Dict[str, Any], ownership_map: Dict[st
 
 
 
+def _handle_story_sizing_gate(context: Dict[str, Any], memory_manager: AgentMemoryManager) -> Dict[str, Any] | None:
+    result = evaluate_story_size(
+        task=context["task"],
+        project_mode=context.get("project_mode", "new_project"),
+        execution_mode=context.get("story_packet", {}).get("execution_mode", context.get("execution_mode", "auto")),
+        story_packet=context.get("story_packet", {}),
+    )
+    context["story_sizing"] = result.to_dict()
+
+    if not getattr(result, "should_block", False):
+        event_status = getattr(result, "status", "PASS") or "PASS"
+        log_event(
+            "STORY_SIZE",
+            "CHECK",
+            event_status,
+            reason=result.reason_code,
+            estimated_files=result.estimated_files,
+            estimated_sections=result.estimated_sections,
+            estimated_apps=result.estimated_apps,
+        )
+        if event_status == "WARN":
+            context.setdefault("runtime_warnings", []).append(format_story_split(result))
+        return None
+
+    message = format_story_split(result)
+    context["execution_error"] = message
+    context["retry_reason"] = result.reason_code
+    context["release_status"] = "BLOCKED"
+    context["severity"] = result.severity
+    context["final_decision"] = "BLOCKED"
+    context["fix_suggestion"] = "Split this request into smaller story-sized implementation tasks before running developer lanes."
+    context["qa_detail"] = {
+        "structural_bugs": [message],
+        "functional_bugs": [],
+        "prd_gaps": [],
+        "ui_gaps": [],
+        "regression_bugs": [],
+    }
+    context["bugs"] = context["qa_detail"]["structural_bugs"]
+    context["gate_state"] = fail_gate(
+        context["gate_state"],
+        "STORY_SIZING_GATE",
+        result.summary,
+        reason_code=result.reason_code,
+    )
+    save_gate_state(context["gate_state"])
+    write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
+    write_workflow_status(context, message)
+    log_event(
+        "STORY_SIZE",
+        "CHECK",
+        "FAIL",
+        reason=result.reason_code,
+        estimated_files=result.estimated_files,
+        estimated_sections=result.estimated_sections,
+        estimated_apps=result.estimated_apps,
+    )
+    save_run(context)
+    memory_manager.remember_run(context)
+    return context
+
+
 def _run_parallel_lanes(context: Dict[str, Any], memory_manager: AgentMemoryManager, ownership_map: Dict[str, Any]) -> None:
     active_lanes = detect_needed_lanes(context["story_packet"], context["task"])
     context["active_lanes"] = active_lanes
@@ -308,6 +372,7 @@ def _run_parallel_lanes(context: Dict[str, Any], memory_manager: AgentMemoryMana
     log_event("PHASE", "implementation", "START", lanes=','.join(active_lanes), compact_fe_context=context.get("compact_fe_context"))
     try:
         results = run_lane_developers_parallel(context, memory_manager, ownership_map, context["effective_target"], MAX_LOOP)
+        context["lane_results"] = results
     except Exception as exc:
         context["execution_error"] = f"lane runtime error: {exc}"
         context["retry_reason"] = "lane_runtime_error"
@@ -330,8 +395,48 @@ def _handle_empty_lane_output(context: Dict[str, Any], memory_manager: AgentMemo
     if context.get("fe_files") or context.get("be_files"):
         return False
 
-    context["execution_error"] = "Both FE and BE developers returned empty or invalid JSON"
-    context["retry_reason"] = "invalid_json_parallel"
+    active_lanes = context.get("active_lanes", []) or []
+    lane_results = context.get("lane_results", {}) or {}
+    details: list[str] = []
+    debug_paths: list[str] = []
+
+    for lane in active_lanes:
+        files, result = lane_results.get(lane, ([], {}))
+        role = result.get("__role", f"{lane}_developer") if isinstance(result, dict) else f"{lane}_developer"
+        raw_chars = result.get("__raw_output_chars", 0) if isinstance(result, dict) else 0
+        debug_path = result.get("__debug_output_path", "") if isinstance(result, dict) else ""
+        if debug_path:
+            debug_paths.append(debug_path)
+        details.append(f"{lane}:{role}: files={len(files)} raw_output_chars={raw_chars}" + (f" debug={debug_path}" if debug_path else ""))
+
+    if active_lanes == ["frontend"]:
+        context["execution_error"] = (
+            "Frontend developer returned output but no valid files could be extracted. "
+            "Likely invalid/truncated project JSON or wrong output contract. "
+            + " | ".join(details)
+        )
+        context["retry_reason"] = "invalid_project_json"
+        context["fix_suggestion"] = (
+            "Return ONLY valid JSON with a top-level files array. No markdown, no prose, no code fences. "
+            "For frontend_only root Vite, include package.json, index.html, src/main.jsx, src/App.jsx, src/index.css. "
+            "If the story is too large, reduce scope instead of returning truncated JSON."
+        )
+    elif active_lanes == ["backend"]:
+        context["execution_error"] = (
+            "Backend developer returned output but no valid files could be extracted. "
+            "Likely invalid/truncated project JSON or wrong output contract. "
+            + " | ".join(details)
+        )
+        context["retry_reason"] = "invalid_project_json"
+        context["fix_suggestion"] = "Return ONLY valid JSON with a top-level files array for backend-owned files."
+    else:
+        context["execution_error"] = (
+            "All active implementation lanes returned empty or invalid JSON. "
+            + " | ".join(details)
+        )
+        context["retry_reason"] = "invalid_json_parallel"
+        context["fix_suggestion"] = "Each active lane must return valid JSON with files scoped to its lane."
+
     context["qa_detail"] = {
         "structural_bugs": [context["execution_error"]],
         "functional_bugs": [],
@@ -339,14 +444,22 @@ def _handle_empty_lane_output(context: Dict[str, Any], memory_manager: AgentMemo
         "ui_gaps": [],
         "regression_bugs": [],
     }
-    context["fix_suggestion"] = "At least one implementation lane must return valid JSON with files."
     context["bugs"] = context["qa_detail"]["structural_bugs"]
     context["release_status"], context["severity"], reason = classify_release_status(context)
-    run_lead_and_store_summary(context, memory_manager, reason, MAX_LOOP, SYSTEM_TARGET)
+    append_retry_history(context)
+    if should_run_lead(context, MAX_LOOP):
+        run_lead_and_store_summary(context, memory_manager, reason, MAX_LOOP, SYSTEM_TARGET)
+    else:
+        log_event(
+            "RELEASE",
+            "SKIP",
+            "developer_self_retry",
+            reason=context.get("retry_reason", ""),
+            loop=context.get("loop_count"),
+        )
     append_history(context)
-    write_workflow_status(context, "Retry required for the current story.")
+    write_workflow_status(context, "Retry required for the current story: invalid developer output JSON.")
     return True
-
 
 def _apply_integration_result(context: Dict[str, Any], integration_result: Dict[str, Any], memory_manager: AgentMemoryManager) -> bool:
     context["integration_conflicts"] = integration_result["integration_conflicts"]
@@ -366,7 +479,17 @@ def _apply_integration_result(context: Dict[str, Any], integration_result: Dict[
     context["fix_suggestion"] = integration_result["fix_suggestion"]
     context["bugs"] = integration_result["bugs"]
     context["release_status"], context["severity"], reason = classify_release_status(context)
-    run_lead_and_store_summary(context, memory_manager, reason, MAX_LOOP, SYSTEM_TARGET)
+    append_retry_history(context)
+    if should_run_lead(context, MAX_LOOP):
+        run_lead_and_store_summary(context, memory_manager, reason, MAX_LOOP, SYSTEM_TARGET)
+    else:
+        log_event(
+            "RELEASE",
+            "SKIP",
+            "developer_self_retry",
+            reason=context.get("retry_reason", ""),
+            loop=context.get("loop_count"),
+        )
     append_history(context)
     write_workflow_status(context, "Retry required for the current story.")
     return True
@@ -418,7 +541,18 @@ def _finalize_loop(context: Dict[str, Any], memory_manager: AgentMemoryManager) 
     context["release_status"], context["severity"], reason = classify_release_status(context)
     context["operation"] = "release"
     write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
-    run_lead_and_store_summary(context, memory_manager, reason, MAX_LOOP, SYSTEM_TARGET)
+    if context["release_status"] == "RETRY":
+        append_retry_history(context)
+    if should_run_lead(context, MAX_LOOP):
+        run_lead_and_store_summary(context, memory_manager, reason, MAX_LOOP, SYSTEM_TARGET)
+    else:
+        log_event(
+            "RELEASE",
+            "SKIP",
+            "developer_self_retry",
+            reason=context.get("retry_reason", ""),
+            loop=context.get("loop_count"),
+        )
     append_history(context)
     log_event("PHASE", "build_validation", "DONE" if success else "ERROR", error=error_message or context.get("execution_error", ""))
     if context["release_status"] == "DONE":
@@ -508,6 +642,10 @@ def run_orchestrator(
     write_run_state(context, STATE_DIR, RUN_STATE_PATH, OUTPUT_PROJECT_DIR, context.get("effective_target", SYSTEM_TARGET))
     log_event("PHASE", "bootstrap", "DONE")
 
+    sizing_blocked = _handle_story_sizing_gate(context, memory_manager)
+    if sizing_blocked is not None:
+        return sizing_blocked
+
     try:
         _run_pm_phase(context, memory_manager)
         _run_architecture_phase(context, memory_manager, ownership_map)
@@ -552,6 +690,15 @@ def run_orchestrator(
                 continue
 
             if _run_preflight_before_reviews(context):
+                context["release_status"], context["severity"], reason = classify_release_status(context)
+                append_retry_history(context)
+                log_event(
+                    "AI_REVIEW",
+                    "SKIP",
+                    "developer_self_retry",
+                    reason=context.get("retry_reason", ""),
+                    loop=context.get("loop_count"),
+                )
                 append_history(context)
                 continue
 

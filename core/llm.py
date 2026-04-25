@@ -21,20 +21,22 @@ from core.token_budget import check_budget_before_call, estimate_tokens, record_
 OLLAMA_CLOUD_HOST = 'https://ollama.com'
 
 ROLE_NUM_PREDICT_DEFAULTS: Dict[str, int] = {
-    'pm': 1600,
-    'architect': 2200,
-    'developer': 8000,
-    'fe_developer': 8000,
-    'be_developer': 8000,
-    'qa': 1800,
-    'fe_reviewer': 1800,
-    'be_reviewer': 1800,
-    'integration_qa': 1800,
-    'lead': 1400,
-    'recovery_meta': 1600,
-    'skill_reviewer': 1400,
+    # Duration optimization defaults.
+    # Keep generation lanes large enough for code, but cap planning/review/release.
+    'pm': 900,
+    'architect': 1200,
+    'developer': 5000,
+    'fe_developer': 5000,
+    'be_developer': 5000,
+    'qa': 900,
+    'fe_reviewer': 700,
+    'be_reviewer': 900,
+    'integration_qa': 900,
+    'lead': 700,
+    'recovery_meta': 900,
+    'skill_reviewer': 700,
     'benchmark': 512,
-    'default': 2048,
+    'default': 1000,
 }
 
 ROLE_SLOW_MS_DEFAULTS: Dict[str, int] = {

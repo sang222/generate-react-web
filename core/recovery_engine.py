@@ -125,74 +125,61 @@ def _persist_candidate(context: Dict[str, Any], candidate: Dict[str, Any], revie
     return candidate_id
 
 
-def run_recovery_engine(context: Dict[str, Any], root: str | Path = ".") -> Dict[str, Any]:
+def run_recovery_engine(context: Dict[str, Any], root: str | Path = '.') -> Dict[str, Any]:
     candidate = propose_recovery_candidate(context)
     risk = classify_candidate_risk(context, candidate)
     review = cross_review_candidate(context, candidate, risk)
     candidate_id = _persist_candidate(context, candidate, review, risk, root)
 
-    risk_scope = str(risk.get("apply_scope", "reject"))
-    review_scope = str(review.get("apply_scope", risk_scope))
+    log_candidate_run({
+        'candidate_id': candidate_id,
+        'project_id': context.get('project_id',''),
+        'story_id': context.get('story_id',''),
+        'failure_pattern': context.get('execution_error',''),
+        'target_skill': candidate.get('target','workflow_skill'),
+        'risk_level': risk.get('risk_level','high'),
+        'reason_codes': risk.get('reason_codes', []),
+    }, root)
+    log_candidate_review({
+        'candidate_id': candidate_id,
+        'project_id': context.get('project_id',''),
+        'story_id': context.get('story_id',''),
+        'reviewer_verdict': review.get('review_result','reject'),
+        'fallback_reason_code': review.get('fallback_reason_code',''),
+        'risk_scope': risk.get('apply_scope', 'reject'),
+        'review_scope': review.get('apply_scope', risk.get('apply_scope','reject')),
+        'final_resolved_scope': final_scope,
+        'risk_level': review.get('risk_level', risk.get('risk_level','high')),
+        'reasoning_summary': review.get('reasoning_summary',''),
+    }, root)
+
+    risk_scope = str(risk.get('apply_scope', 'reject'))
+    review_scope = str(review.get('apply_scope', risk_scope))
     final_scope = resolve_final_apply_scope(risk_scope, review_scope)
-
-    log_candidate_run(
-        {
-            "candidate_id": candidate_id,
-            "project_id": context.get("project_id", ""),
-            "story_id": context.get("story_id", ""),
-            "failure_pattern": context.get("execution_error", ""),
-            "target_skill": candidate.get("target", "workflow_skill"),
-            "risk_level": risk.get("risk_level", "high"),
-            "reason_codes": risk.get("reason_codes", []),
-        },
-        root,
-    )
-
-    log_candidate_review(
-        {
-            "candidate_id": candidate_id,
-            "project_id": context.get("project_id", ""),
-            "story_id": context.get("story_id", ""),
-            "reviewer_verdict": review.get("review_result", "reject"),
-            "fallback_reason_code": review.get("fallback_reason_code", ""),
-            "risk_scope": risk_scope,
-            "review_scope": review_scope,
-            "final_resolved_scope": final_scope,
-            "risk_level": review.get("risk_level", risk.get("risk_level", "high")),
-            "reasoning_summary": review.get("reasoning_summary", ""),
-        },
-        root,
-    )
-
     applied = apply_runtime_override(context, candidate, final_scope)
+    log_auto_applied({
+        'candidate_id': candidate_id,
+        'project_id': context.get('project_id',''),
+        'story_id': context.get('story_id',''),
+        'risk_scope': risk.get('apply_scope', 'reject'),
+        'review_scope': review.get('apply_scope', risk.get('apply_scope','reject')),
+        'final_resolved_scope': applied.get('apply_scope','reject'),
+        'override_result': 'applied' if applied.get('auto_applied') else 'not_applied',
+        'rerun_allowed': bool(applied.get('rerun_allowed', False)),
+        'blocked_reason': applied.get('blocked_reason','') or review.get('fallback_reason_code',''),
+    }, root)
 
-    log_auto_applied(
-        {
-            "candidate_id": candidate_id,
-            "project_id": context.get("project_id", ""),
-            "story_id": context.get("story_id", ""),
-            "risk_scope": risk_scope,
-            "review_scope": review_scope,
-            "final_resolved_scope": applied.get("apply_scope", final_scope),
-            "override_result": "applied" if applied.get("auto_applied") else "not_applied",
-            "rerun_allowed": bool(applied.get("rerun_allowed", False)),
-            "blocked_reason": applied.get("blocked_reason", "")
-            or review.get("fallback_reason_code", ""),
-        },
-        root,
-    )
-
-    context["adaptive_recovery_triggered"] = True
-    context["adaptive_recovery_candidate_id"] = candidate_id
-    context["adaptive_recovery_scope"] = applied.get("apply_scope", "reject")
-    context["runtime_override_applied"] = bool(applied.get("auto_applied", False))
-    context.setdefault("skill_candidate_ids", []).append(candidate_id)
-    context["adaptive_recovery_block_reason"] = applied.get("blocked_reason", "")
+    context['adaptive_recovery_triggered'] = True
+    context['adaptive_recovery_candidate_id'] = candidate_id
+    context['adaptive_recovery_scope'] = applied.get('apply_scope','reject')
+    context['runtime_override_applied'] = bool(applied.get('auto_applied', False))
+    context.setdefault('skill_candidate_ids', []).append(candidate_id)
+    context['adaptive_recovery_block_reason'] = applied.get('blocked_reason','')
 
     return {
-        "candidate_id": candidate_id,
-        "candidate": candidate,
-        "risk_assessment": risk,
-        "cross_review": review,
-        "apply_record": applied,
+        'candidate_id': candidate_id,
+        'candidate': candidate,
+        'risk_assessment': risk,
+        'cross_review': review,
+        'apply_record': applied,
     }
