@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -153,6 +155,103 @@ def _interactive_collect(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
+
+def _run_check_models() -> int:
+    from core.model_preflight import run_model_preflight
+
+    results = run_model_preflight()
+    ok = True
+    for result in results:
+        status = "PASS" if result.ok else "FAIL"
+        print(
+            f"[{status}] role={result.role} "
+            f"model={result.model} "
+            f"duration_ms={result.duration_ms}"
+            + (f" error={result.error}" if result.error else "")
+        )
+        ok = ok and result.ok
+    return 0 if ok else 1
+
+
+def _run_benchmark_model(model: str, runs: int) -> int:
+    cmd = [
+        sys.executable,
+        "scripts/benchmark_models.py",
+        "--model",
+        model,
+        "--runs",
+        str(runs),
+    ]
+    return subprocess.call(cmd)
+
+
+def _clear_failed_logs() -> int:
+    targets = [
+        "output_project",
+        "state/runs",
+        "state/run_state.json",
+        "state/workflow_status.yaml",
+        ".runs/debug_outputs",
+        "logs",
+    ]
+
+    for target in targets:
+        path = Path(target)
+        if path.is_dir():
+            shutil.rmtree(path)
+            print(f"[CLEAR] removed dir {target}")
+        elif path.is_file():
+            path.unlink()
+            print(f"[CLEAR] removed file {target}")
+    return 0
+
+
+def _apply_wizard_result(args: argparse.Namespace, wizard: Any) -> argparse.Namespace:
+    args.task = wizard.task
+    args.task_file = None
+    args.project_mode = wizard.project_mode
+    args.project_id = wizard.project_id
+    args.epic_id = wizard.epic_id
+    args.story_id = wizard.story_id
+    args.story_name = wizard.story_name or None
+    args.resume_from = wizard.resume_from or None
+    args.depends_on = wizard.depends_on
+    args.execution_mode = wizard.execution_mode
+    args.entry_skill = wizard.entry_skill or args.entry_skill
+    args.json = bool(wizard.json_output)
+    args.save_result = wizard.save_result or None
+    return args
+
+
+def _handle_wizard_utility_action(wizard: Any) -> Optional[int]:
+    if wizard.action == "check_models":
+        return _run_check_models()
+    if wizard.action == "benchmark_model":
+        return _run_benchmark_model(wizard.benchmark_model, wizard.benchmark_runs)
+    if wizard.action == "clear_logs":
+        return _clear_failed_logs()
+    if wizard.action == "workflow_status":
+        return _run_workflow_status(wizard.workflow_status_project_id)
+    if wizard.action == "skill_candidates":
+        if wizard.skill_candidate_action == "list":
+            return _run_skill_candidate_cli("--list")
+        if wizard.skill_candidate_action == "show":
+            return _run_skill_candidate_cli("--show", wizard.skill_candidate_id)
+        if wizard.skill_candidate_action == "review":
+            cli_args = [
+                "--review",
+                wizard.skill_candidate_id,
+                "--decision",
+                wizard.skill_candidate_decision,
+            ]
+            if wizard.skill_candidate_note:
+                cli_args.extend(["--note", wizard.skill_candidate_note])
+            return _run_skill_candidate_cli(*cli_args)
+    if wizard.action == "exit":
+        print("Cancelled.")
+        return 0
+    return None
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='Run the AI Dev Team orchestrator')
     parser.add_argument('task', nargs='?', help='Task text')
@@ -187,7 +286,22 @@ def main() -> int:
 
     no_direct_inputs = not any([args.task, args.task_file, args.workflow_status, args.list_skill_candidates, args.show_skill_candidate, args.review_skill_candidate, args.save_result, args.list_agents, args.list_skills, args.show_skill, args.run_skill_evals, args.show_skill_eval_case, args.show_recovery_history, args.show_token_usage, args.use_runtime_graph]) and args.project_id is None and args.epic_id is None and args.story_name is None and args.resume_from is None and args.depends_on is None
     if args.interactive or no_direct_inputs:
-        args = _interactive_collect(args)
+        try:
+            from core.cli_wizard import run_cli_wizard
+            wizard = run_cli_wizard()
+        except Exception as exc:
+            print(f"[CLI:WARN] interactive wizard unavailable: {exc}")
+            wizard = None
+
+        if wizard is None:
+            print("Cancelled.")
+            return 0
+
+        utility_result = _handle_wizard_utility_action(wizard)
+        if utility_result is not None:
+            return utility_result
+
+        args = _apply_wizard_result(args, wizard)
 
     task = (args.task or '').strip()
     if args.task_file:
