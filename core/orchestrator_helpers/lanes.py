@@ -20,6 +20,59 @@ from core.orchestrator_helpers.delivery import normalize_files_for_target
 
 from core.lane_detection import detect_needed_lanes
 
+
+def _clean_path(path: str) -> str:
+    return str(path or "").replace("\\", "/").lstrip("./")
+
+
+def _is_under(path: str, root: str) -> bool:
+    clean = _clean_path(path)
+    root_clean = _clean_path(root).rstrip("/")
+    return bool(root_clean) and (clean == root_clean or clean.startswith(root_clean + "/"))
+
+
+def _allowed_roots_for_lane(lane: str, effective_target: Dict[str, Any]) -> list[str]:
+    if effective_target.get("effective_mode") == "fullstack" and effective_target.get("layout") == "monorepo":
+        if lane == "frontend":
+            return list(effective_target.get("frontend_roots", []) or [])
+        if lane == "backend":
+            return [str(effective_target.get("backend_root", "api"))]
+
+    if lane == "frontend":
+        root = str(effective_target.get("frontend_root", "frontend") or "")
+        if root in {"", "."}:
+            return [""]
+        return [root]
+    if lane == "backend":
+        return [str(effective_target.get("backend_root", "backend") or "backend")]
+    return []
+
+
+def filter_lane_files_for_target(
+    files: list[dict],
+    lane: str,
+    effective_target: Dict[str, Any],
+) -> tuple[list[dict], list[str]]:
+    allowed_roots = _allowed_roots_for_lane(lane, effective_target)
+    if not allowed_roots:
+        return files, []
+
+    if allowed_roots == [""]:
+        # frontend_only root app: all normalized files are frontend-owned.
+        return files, []
+
+    kept: list[dict] = []
+    violations: list[str] = []
+    for item in files or []:
+        path = _clean_path(item.get("path", ""))
+        if any(_is_under(path, root) for root in allowed_roots):
+            cloned = dict(item)
+            cloned["path"] = path
+            kept.append(cloned)
+        else:
+            violations.append(path)
+    return kept, violations
+
 def run_lead_and_store_summary(
     context: Dict[str, Any],
     memory_manager: AgentMemoryManager,
@@ -125,6 +178,19 @@ def run_lane_developer(context: Dict[str, Any], memory_manager: AgentMemoryManag
     result = extract_json_object(raw)
     files = normalize_files(result)
     files = normalize_files_for_target(files, effective_target)
+    files, lane_violations = filter_lane_files_for_target(files, lane, effective_target)
+
+    result["__lane_scope_violations"] = lane_violations
+    if lane_violations:
+        log_event(
+            "VALIDATION",
+            lane,
+            "WARN",
+            reason="lane_scope_filtered",
+            role=role,
+            dropped=len(lane_violations),
+            paths=",".join(lane_violations[:8]),
+        )
 
     result["__lane"] = lane
     result["__role"] = role

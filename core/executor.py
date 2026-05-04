@@ -112,20 +112,33 @@ def _frontend_root(project_dir: Path, system_target: Dict[str, str]) -> Path:
     return project_dir
 
 
+def _frontend_roots(project_dir: Path, system_target: Dict[str, str]) -> List[Path]:
+    if system_target.get("effective_mode") == "fullstack" and system_target.get("layout") == "monorepo":
+        return [project_dir / str(root) for root in (system_target.get("frontend_roots", []) or [])]
+    return [_frontend_root(project_dir, system_target)]
+
+
 def _backend_root(project_dir: Path, system_target: Dict[str, str]) -> Path:
+    backend_root = str(system_target.get("backend_root", "") or "").strip()
+    if backend_root in {"", "."}:
+        return project_dir
+    if backend_root:
+        return project_dir / backend_root
     return project_dir / "backend"
 
 
 def _validate_frontend_files(project_dir: Path, system_target: Dict[str, str]) -> Tuple[bool, str]:
-    root = _frontend_root(project_dir, system_target)
-    required = [
-        root / "package.json",
-        root / "index.html",
-        root / "src" / "main.jsx",
-        root / "src" / "App.jsx",
-        root / "src" / "index.css",
-    ]
-    missing = [str(p.relative_to(project_dir)) for p in required if not p.exists()]
+    missing: List[str] = []
+    for root in _frontend_roots(project_dir, system_target):
+        required = [
+            root / "package.json",
+            root / "index.html",
+            root / "src" / "main.jsx",
+            root / "src" / "App.jsx",
+            root / "src" / "index.css",
+        ]
+        missing.extend(str(p.relative_to(project_dir)) for p in required if not p.exists())
+
     if missing:
         return False, f"Missing required frontend files before execution: {', '.join(missing)}"
     return True, ""
@@ -160,10 +173,24 @@ def _discover_spring_boot_application_file(backend_dir: Path) -> Optional[str]:
 
 
 def _validate_backend_files(project_dir: Path, system_target: Dict[str, str]) -> Tuple[bool, str]:
+    backend_dir = _backend_root(project_dir, system_target)
+
+    if system_target.get("backend_framework") == "express":
+        required = [
+            backend_dir / "package.json",
+            backend_dir / "src" / "server.js",
+            backend_dir / "src" / "app.js",
+            backend_dir / "src" / "config" / "db.js",
+            backend_dir / ".env.example",
+        ]
+        missing = [str(p.relative_to(project_dir)) for p in required if not p.exists()]
+        if missing:
+            return False, f"Missing required Express backend files before execution: {', '.join(missing)}"
+        return True, ""
+
     if system_target.get("backend_language") != "java":
         return True, ""
 
-    backend_dir = _backend_root(project_dir, system_target)
     build_file = backend_dir / ("build.gradle.kts" if (backend_dir / "build.gradle.kts").exists() else "build.gradle")
     resources_dir = backend_dir / "src" / "main" / "resources"
     app_props = resources_dir / "application.properties"
@@ -172,15 +199,15 @@ def _validate_backend_files(project_dir: Path, system_target: Dict[str, str]) ->
 
     missing = []
     if not backend_dir.exists():
-        missing.append("backend/")
+        missing.append(str(backend_dir.relative_to(project_dir)) + "/")
     if not build_file.exists():
-        missing.append(f"backend/{build_file.name}")
+        missing.append(str(build_file.relative_to(project_dir)))
     if not resources_dir.exists():
-        missing.append("backend/src/main/resources")
+        missing.append(str(resources_dir.relative_to(project_dir)))
     if not app_props.exists() and not app_yml.exists():
-        missing.append("backend/src/main/resources/application.properties|application.yml")
+        missing.append(str(resources_dir.relative_to(project_dir)) + "/application.properties|application.yml")
     if not main_app:
-        missing.append("backend/src/main/java/**/@SpringBootApplication entrypoint")
+        missing.append(str(backend_dir.relative_to(project_dir)) + "/src/main/java/**/@SpringBootApplication entrypoint")
     if missing:
         return False, f"Missing required backend files before execution: {', '.join(missing)}"
 
@@ -191,9 +218,25 @@ def _validate_backend_files(project_dir: Path, system_target: Dict[str, str]) ->
 
 
 def _validate_database_contract(project_dir: Path, system_target: Dict[str, str]) -> Tuple[bool, str]:
-    if system_target.get("database_engine") != "postgres":
-        return True, ""
+    engine = system_target.get("database_engine")
     backend_dir = _backend_root(project_dir, system_target)
+
+    if engine == "mongodb":
+        env_file = backend_dir / ".env.example"
+        db_file = backend_dir / "src" / "config" / "db.js"
+        text = ""
+        for path in [env_file, db_file]:
+            if path.exists():
+                try:
+                    text += "\n" + path.read_text(encoding="utf-8").lower()
+                except Exception:
+                    pass
+        if "mongodb_uri" in text or "mongo" in text:
+            return True, ""
+        return False, "Database contract check failed: Express/Mongo backend does not reference MONGODB_URI or MongoDB config."
+
+    if engine != "postgres":
+        return True, ""
     resources_dir = backend_dir / "src" / "main" / "resources"
     for path in [resources_dir / "application.properties", resources_dir / "application.yml"]:
         if path.exists():
@@ -269,16 +312,15 @@ def run_preflight_checks(output_dir: str = OUTPUT_DIR, system_target: Optional[D
             return False, message
 
     if target.get("effective_mode") != "backend_only":
-        frontend_dir = _frontend_root(project_dir, target)
-        package_error = validate_package_json_dependencies(frontend_dir)
-        if package_error:
-            return False, package_error
+        for frontend_dir in _frontend_roots(project_dir, target):
+            package_error = validate_package_json_dependencies(frontend_dir)
+            if package_error:
+                return False, package_error
 
-        issues = _find_local_import_issues(frontend_dir / "src")
-        if issues:
-            return False, "[preflight import check failed]\n" + "\n".join(issues[:20])
+            issues = _find_local_import_issues(frontend_dir / "src")
+            if issues:
+                return False, "[preflight import check failed]\n" + "\n".join(issues[:20])
     return True, ""
-
 
 def _manifest_hash(frontend_dir: Path) -> str:
     h = hashlib.sha256()
@@ -320,32 +362,47 @@ def _store_cached_node_modules(frontend_dir: Path) -> None:
 
 
 def _run_frontend_check(project_dir: Path, system_target: Dict[str, str]) -> Tuple[bool, str]:
-    frontend_dir = _frontend_root(project_dir, system_target)
     if not _has_cmd("npm"):
         return False, "npm not found in PATH. Please install Node.js/npm first."
 
-    package_error = validate_package_json_dependencies(frontend_dir)
-    if package_error:
-        return False, package_error
+    for frontend_dir in _frontend_roots(project_dir, system_target):
+        package_error = validate_package_json_dependencies(frontend_dir)
+        if package_error:
+            return False, package_error
 
-    restored = _restore_cached_node_modules(frontend_dir)
-    if not restored:
-        install_cmd = ["npm", "ci"] if (frontend_dir / "package-lock.json").exists() else ["npm", "install"]
-        install_ok, install_output = _run_command(install_cmd, cwd=frontend_dir, timeout=NPM_INSTALL_TIMEOUT)
-        if not install_ok:
-            return False, _shorten_error(f"[frontend {' '.join(install_cmd)} failed]\n{install_output}")
-        _store_cached_node_modules(frontend_dir)
+        restored = _restore_cached_node_modules(frontend_dir)
+        if not restored:
+            install_cmd = ["npm", "ci"] if (frontend_dir / "package-lock.json").exists() else ["npm", "install"]
+            install_ok, install_output = _run_command(install_cmd, cwd=frontend_dir, timeout=NPM_INSTALL_TIMEOUT)
+            if not install_ok:
+                return False, _shorten_error(f"[frontend {' '.join(install_cmd)} failed in {frontend_dir.name}]\n{install_output}")
+            _store_cached_node_modules(frontend_dir)
 
-    build_ok, build_output = _run_command(["npm", "run", "build"], cwd=frontend_dir, timeout=NPM_BUILD_TIMEOUT)
-    if not build_ok:
-        return False, _shorten_error(f"[frontend npm run build failed]\n{build_output}")
+        build_ok, build_output = _run_command(["npm", "run", "build"], cwd=frontend_dir, timeout=NPM_BUILD_TIMEOUT)
+        if not build_ok:
+            return False, _shorten_error(f"[frontend npm run build failed in {frontend_dir.name}]\n{build_output}")
     return True, ""
 
 
 def _run_backend_check(project_dir: Path, system_target: Dict[str, str]) -> Tuple[bool, str]:
+    backend_dir = _backend_root(project_dir, system_target)
+
+    if system_target.get("backend_framework") == "express":
+        if not _has_cmd("npm"):
+            return False, "npm not found in PATH. Please install Node.js/npm first."
+        install_cmd = ["npm", "ci"] if (backend_dir / "package-lock.json").exists() else ["npm", "install"]
+        install_ok, install_output = _run_command(install_cmd, cwd=backend_dir, timeout=NPM_INSTALL_TIMEOUT)
+        if not install_ok:
+            return False, _shorten_error(f"[backend {' '.join(install_cmd)} failed]\n{install_output}")
+        # Import app.js instead of running npm start, because start opens a long-running server.
+        smoke = ["node", "--input-type=module", "-e", "import('./src/app.js').then(() => console.log('api import ok'))"]
+        ok, output = _run_command(smoke, cwd=backend_dir, timeout=60)
+        if not ok:
+            return False, _shorten_error(f"[backend express import smoke failed]\n{output}")
+        return True, ""
+
     if system_target.get("backend_language") != "java":
         return True, ""
-    backend_dir = _backend_root(project_dir, system_target)
     cmd, err = _detect_backend_build_command(backend_dir, system_target.get("backend_build_tool", "gradle"))
     if err or not cmd:
         return False, err or "No backend build command available."

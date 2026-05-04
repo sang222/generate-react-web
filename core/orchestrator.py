@@ -10,7 +10,7 @@ from agents.pm import run_pm
 from core.adaptive_recovery import run_adaptive_recovery, should_trigger_adaptive_recovery
 from core.config import get_system_target, load_module_config
 from core.decision_service import decide_final_decision
-from core.effective_target import derive_effective_target
+from core.effective_target import derive_effective_target, resolve_effective_target
 from core.runtime_log import log_event
 from core.executor import run_preflight_checks, run_system_check
 from core.file_manager import summarize_project_tree, summarize_project_tree_for
@@ -39,6 +39,7 @@ from core.review_service import review_merged_output
 from core.retry_policy import append_retry_history, is_developer_self_retry_allowed, should_run_lead
 from core.story_sizing import evaluate_story_size, format_story_split
 from core.token_budget import TokenBudgetExceeded, set_token_context, sync_token_usage_to_context
+from core.topology_contract import extract_topology_contract, fallback_topology_for_execution_mode, validate_topology_contract
 from core.story_state import (
     default_story_packet,
     ensure_artifact_locks,
@@ -189,6 +190,33 @@ def _initialize_story_context(
         delivery_index=delivery_index,
         ownership_path=ownership_path,
     )
+
+    if (execution_mode or "") == "fullstack":
+        topology = fallback_topology_for_execution_mode("fullstack", task, story_packet)
+        validation = validate_topology_contract(topology)
+        context["topology_contract"] = topology
+        story_packet["topology_contract"] = topology
+        context["effective_target"] = resolve_effective_target(
+            SYSTEM_TARGET,
+            ["frontend", "backend"],
+            task=task,
+            story_packet=story_packet,
+            topology_contract=topology,
+        )
+        story_packet["system_target"] = context["effective_target"]
+        status = "PASS" if validation.ok else "WARN"
+        log_event(
+            "TOPOLOGY",
+            "INITIAL",
+            status,
+            frontend_roots=",".join(topology.get("frontend_roots", [])),
+            backend_root=topology.get("backend_root", ""),
+            backend_framework=topology.get("backend_framework", ""),
+            database_engine=topology.get("database_engine", ""),
+            warnings="; ".join(validation.warnings),
+            errors="; ".join(validation.errors),
+        )
+
     return context, story_packet, ownership_map, effective_project_mode
 
 
@@ -221,6 +249,43 @@ def _run_architecture_phase(context: Dict[str, Any], memory_manager: AgentMemory
     )
     if context["baseline_tree"]:
         context["design"] += f"\n\nBaseline project tree:\n{context['baseline_tree']}"
+
+    if context.get("story_packet", {}).get("execution_mode") == "fullstack":
+        topology = extract_topology_contract(
+            context.get("design", ""),
+            fallback_text="\n".join([context.get("task", ""), context.get("prd", "")]),
+        )
+        validation = validate_topology_contract(topology)
+        if validation.ok:
+            context["topology_contract"] = topology
+            context["story_packet"]["topology_contract"] = topology
+            context["effective_target"] = resolve_effective_target(
+                SYSTEM_TARGET,
+                ["frontend", "backend"],
+                task=context.get("task", ""),
+                story_packet=context.get("story_packet", {}),
+                topology_contract=topology,
+            )
+            context["story_packet"]["system_target"] = context["effective_target"]
+            log_event(
+                "TOPOLOGY",
+                "CONTRACT",
+                "PASS" if not validation.warnings else "WARN",
+                frontend_roots=",".join(topology.get("frontend_roots", [])),
+                backend_root=topology.get("backend_root", ""),
+                backend_framework=topology.get("backend_framework", ""),
+                database_engine=topology.get("database_engine", ""),
+                warnings="; ".join(validation.warnings),
+            )
+        else:
+            log_event(
+                "TOPOLOGY",
+                "CONTRACT",
+                "WARN",
+                reason="invalid_architect_topology_using_existing_or_fallback",
+                errors="; ".join(validation.errors),
+            )
+
     context["gate_state"] = pass_gate(
         context["gate_state"],
         "GATE_3_DESIGN",
@@ -362,7 +427,13 @@ def _run_parallel_lanes(context: Dict[str, Any], memory_manager: AgentMemoryMana
     active_lanes = detect_needed_lanes(context["story_packet"], context["task"])
     context["active_lanes"] = active_lanes
     context["story_packet"]["active_lanes"] = active_lanes
-    context["effective_target"] = derive_effective_target(SYSTEM_TARGET, active_lanes)
+    context["effective_target"] = resolve_effective_target(
+        SYSTEM_TARGET,
+        active_lanes,
+        task=context.get("task", ""),
+        story_packet=context.get("story_packet", {}),
+        topology_contract=context.get("topology_contract"),
+    )
     context["story_packet"]["system_target"] = context["effective_target"]
     context["compact_fe_context"] = (
         context.get("project_mode") == "new_project"
@@ -633,7 +704,7 @@ def run_orchestrator(
     initial_lanes = detect_needed_lanes(context["story_packet"], context["task"])
     context["active_lanes"] = initial_lanes
     context["story_packet"]["active_lanes"] = initial_lanes
-    context["effective_target"] = derive_effective_target(SYSTEM_TARGET, initial_lanes)
+    context["effective_target"] = resolve_effective_target(SYSTEM_TARGET, initial_lanes, task=context.get("task", ""), story_packet=context.get("story_packet", {}), topology_contract=context.get("topology_contract"))
     context["story_packet"]["system_target"] = context["effective_target"]
     set_token_context(context)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from agents.base import compact_history, developer_resources, render_agent_context, safe_json
 from core.context_views import build_developer_context_view, render_context_view
 from core.debug import trace_block
+from core.lane_scope import allowed_roots_for_lane, format_allowed_roots
 from core.llm import call_role_llm
 
 
@@ -37,6 +38,40 @@ Retry focus:
     return ""
 
 
+def _fullstack_contract_text(lane: str, system_target: dict | None) -> str:
+    target = system_target or {}
+    if target.get("effective_mode") != "fullstack" or target.get("layout") != "monorepo":
+        return ""
+    allowed = format_allowed_roots(lane, target)
+    frontend_roots = allowed_roots_for_lane("frontend", target)
+    backend_roots = allowed_roots_for_lane("backend", target)
+    if lane == "frontend":
+        forbidden = ", ".join(f"{root}/**" for root in backend_roots)
+    else:
+        forbidden = ", ".join(f"{root}/**" for root in frontend_roots)
+    return f"""
+Fullstack monorepo lane contract:
+- Output ONLY files under your lane allowed roots: {allowed}.
+- Never create or modify another lane's roots: {forbidden or 'none'}.
+- Follow system_target.backend_framework={target.get('backend_framework')} and system_target.database_engine={target.get('database_engine')} exactly.
+- Do not output legacy frontend/ or backend/ paths unless they are explicitly present in system_target.
+""".strip()
+
+
+def _lane_guidance(lane: str, system_target: dict | None) -> str:
+    target = system_target or {}
+    if target.get("effective_mode") == "fullstack" and target.get("layout") == "monorepo":
+        allowed = format_allowed_roots(lane, target)
+        if lane == "frontend":
+            return f"FULLSTACK MONOREPO FRONTEND LANE. You may ONLY create or modify files under: {allowed}."
+        if lane == "backend":
+            return f"FULLSTACK MONOREPO BACKEND LANE. You may ONLY create or modify files under: {allowed}."
+    return {
+        "frontend": "Stay inside frontend-owned paths unless a shared integration file is clearly required.",
+        "backend": "Stay inside backend-owned paths unless a shared integration file is clearly required.",
+    }.get(lane, "Stay inside your lane ownership boundaries.")
+
+
 def build_developer_prompt(
     role: str,
     lane: str,
@@ -56,10 +91,17 @@ def build_developer_prompt(
     compact_context: bool = False,
 ) -> str:
     retry_hint = build_dependency_retry_hint(execution_error)
-    lane_guidance = {
-        "frontend": "Stay inside frontend-owned paths unless a shared integration file is clearly required.",
-        "backend": "Stay inside backend-owned paths unless a shared integration file is clearly required.",
-    }.get(lane, "Stay inside your lane ownership boundaries.")
+    lane_guidance = _lane_guidance(lane, system_target)
+    fullstack_contract = _fullstack_contract_text(lane, system_target)
+
+    common_contract = f"""
+Frontend-only root Vite file contract:
+- If lane=frontend and effective_target.effective_mode=frontend_only and effective_target.frontend_root='.', return paths at app root.
+- Required paths are exactly: package.json, index.html, src/main.jsx, src/App.jsx, src/index.css.
+- Do NOT prefix these files with frontend/, app/, web/, client/, or project-name/.
+
+{fullstack_contract}
+""".strip()
 
     if compact_context:
         context_like = {
@@ -86,10 +128,7 @@ Highest priority order:
 4. minimal dependencies
 5. story completeness
 
-Frontend-only root Vite file contract:
-- If lane=frontend and effective_target.effective_mode=frontend_only and effective_target.frontend_root='.', return paths at app root.
-- Required paths are exactly: package.json, index.html, src/main.jsx, src/App.jsx, src/index.css.
-- Do NOT prefix these files with frontend/, app/, web/, client/, or project-name/.
+{common_contract}
 
 Read and follow these focused resources:
 {developer_resources(project_mode, execution_error, story_packet, role)}
@@ -129,10 +168,7 @@ Highest priority order:
 4. minimal dependencies
 5. story completeness
 
-Frontend-only root Vite file contract:
-- If lane=frontend and system_target.effective_mode=frontend_only and system_target.frontend_root='.', return paths at app root.
-- Required paths are exactly: package.json, index.html, src/main.jsx, src/App.jsx, src/index.css.
-- Do NOT prefix these files with frontend/, app/, web/, client/, or project-name/.
+{common_contract}
 
 Read and follow these resources:
 {developer_resources(project_mode, execution_error, story_packet, role)}

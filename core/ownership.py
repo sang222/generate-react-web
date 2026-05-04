@@ -19,7 +19,7 @@ def ensure_ownership_map(project_id: str) -> Dict[str, Any]:
     data = {
         'teams': {
             'backend': {'owned_paths': ['backend/', 'api/', 'db/', 'server/', 'shared/contracts/']},
-            'frontend': {'owned_paths': ['frontend/', 'web/', 'src/', 'public/', 'shared/ui/']},
+            'frontend': {'owned_paths': ['frontend/', 'web/', 'src/', 'public/', 'shared/ui/', '*-web/']},
         },
         'shared_paths': ['shared/', 'docs/'],
         'lock_rules': {'shared_requires_change_request': True},
@@ -37,8 +37,10 @@ def infer_lane_for_path(path: str, ownership: Dict[str, Any]) -> str:
     for prefix in ownership.get('shared_paths', []) or []:
         if clean.startswith(prefix):
             return 'shared'
-    if clean.startswith('src/') or clean.startswith('public/') or clean in {'package.json','index.html'}:
+    if clean in {'package.json', 'index.html'} or clean.startswith(('src/', 'public/', 'frontend/', 'web/')) or clean.split('/', 1)[0].endswith('-web'):
         return 'frontend'
+    if clean.startswith(('api/', 'backend/', 'server/', 'db/')):
+        return 'backend'
     return 'shared'
 
 

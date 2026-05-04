@@ -33,83 +33,98 @@ class WizardResult:
     skill_candidate_note: str = ""
 
 
-FULLSTACK_FOUNDATION_TEMPLATE = """Build only the monorepo foundation for a cafe ordering system.
+FULLSTACK_FOUNDATION_TEMPLATE = """Build a polished monorepo foundation for a cafe ordering system.
 
 Scope for this story:
-Create runnable app shells only. Do not implement product features.
+Create runnable app foundations only. Do not implement real business workflows yet.
+However, every frontend app must look like a high-quality product foundation, not a blank placeholder.
 
 Required structure:
-- customer-web: minimal Vite React shell
-- staff-web: minimal Vite React shell
-- admin-web: minimal Vite React shell
-- api: minimal Express API shell
+- customer-web: polished Vite React customer storefront foundation
+- staff-web: polished Vite React staff operations foundation
+- admin-web: polished Vite React admin management foundation
+- api: minimal Express API foundation
 
-Customer web:
+Frontend quality rules:
+- Do NOT generate boring placeholder pages like only <h1>App Name</h1>.
+- Static UI sections are allowed.
+- Static sample cards are allowed for visual structure.
+- Empty states are allowed when they clearly say the feature will be connected later.
+- No fake API calls.
+- No real auth, CRUD, payment, or order workflow logic.
+- Use role-specific layout, typography, spacing, cards, and responsive CSS.
+
+customer-web must include:
+- brand/header area
+- polished hero section
+- static menu preview cards
+- ordering journey preview
+- opening hours/location info
+- CTA area for future ordering
+
+staff-web must include:
+- staff operations layout
+- shift/status summary card
+- static order queue preview
+- kitchen/status workflow preview
+- quick action cards
+- empty states for future connected features
+
+admin-web must include:
+- admin control center layout
+- overview cards
+- staff management preview
+- menu management preview
+- store settings preview
+- report/insight placeholder section
+
+Each web app must include:
 - package.json
 - index.html
 - src/main.jsx
 - src/App.jsx
 - src/index.css
 
-Staff web:
-- package.json
-- index.html
-- src/main.jsx
-- src/App.jsx
-- src/index.css
-
-Admin web:
-- package.json
-- index.html
-- src/main.jsx
-- src/App.jsx
-- src/index.css
-
-API:
+API must include:
 - package.json
 - src/server.js
 - src/app.js
 - src/config/db.js
 - .env.example
-- GET /health endpoint
+- GET /health endpoint returning JSON
 - MongoDB connection config through MONGODB_URI
 
-Out of scope for this story:
-- authentication
-- menu CRUD
-- order flow
-- payment
-- dashboards
-- account management
-- reports
+Backend scope:
+- Express only.
+- No auth.
+- No menu CRUD.
+- No order flow.
+- No payment.
+- No account management.
+- No reports.
+
+Implementation constraints:
+- Keep each frontend simple enough to fit in valid project JSON.
+- Prefer one App.jsx and one index.css per frontend app for this foundation story.
+- Use polished CSS with design tokens, responsive layout, cards, and subtle transitions.
+- Do not create files outside the requested app roots.
+- Return only valid project JSON with files array.
+- No markdown.
+- No explanation.
+- No code fences.
 
 Acceptance criteria:
-- each web app is a valid Vite React app
-- api starts with npm start
-- GET /health returns JSON
-- no feature logic beyond app shells and health check
-- keep output small and valid JSON"""
-
-FRONTEND_TEMPLATE = """Build a clean, polished React/Vite web app.
-
-Scope:
-- Create a root Vite React app.
-- Keep the app focused enough to produce valid runnable files.
-
-Required files:
-- package.json
-- index.html
-- src/main.jsx
-- src/App.jsx
-- src/index.css
-
-Requirements:
-- No frontend/, app/, client/, web/, or nested wrapper folders.
-- No backend.
-- Responsive layout.
-- Polished CSS.
+- customer-web is a valid Vite React app.
+- staff-web is a valid Vite React app.
+- admin-web is a valid Vite React app.
+- api starts with npm start.
+- GET /health returns JSON.
+- MongoDB config uses MONGODB_URI.
+- Frontend apps look polished and role-specific.
+- No app is a blank placeholder.
 - No fake API calls.
-- Return only valid project JSON with files array."""
+- No real feature workflow is implemented.
+- Output remains small enough to parse as valid JSON."""
 
 
 def _slug_default(value: str, fallback: str) -> str:

@@ -13,8 +13,55 @@ def _normalize_required_path(path: str) -> str:
     return str(path).replace("\\", "/").lstrip("./")
 
 
+def _frontend_required_files(root: str) -> List[str]:
+    clean = _normalize_required_path(root)
+    prefix = "" if clean in {"", "."} else clean + "/"
+    return [
+        f"{prefix}package.json",
+        f"{prefix}index.html",
+        f"{prefix}src/main.jsx",
+        f"{prefix}src/App.jsx",
+        f"{prefix}src/index.css",
+    ]
+
+
+def _express_backend_required_files(root: str) -> List[str]:
+    clean = _normalize_required_path(root or "api")
+    prefix = "" if clean in {"", "."} else clean + "/"
+    return [
+        f"{prefix}package.json",
+        f"{prefix}src/server.js",
+        f"{prefix}src/app.js",
+        f"{prefix}src/config/db.js",
+        f"{prefix}.env.example",
+    ]
+
+
+def _java_backend_required_files(root: str) -> List[str]:
+    clean = _normalize_required_path(root or "backend")
+    prefix = "" if clean in {"", "."} else clean + "/"
+    return [
+        f"{prefix}build.gradle",
+        f"{prefix}src/main/resources/application.properties",
+    ]
+
+
 def required_files_for_target(system_target: Dict[str, Any]) -> List[str]:
     effective_mode = system_target.get("effective_mode")
+    layout = system_target.get("layout", "")
+
+    if effective_mode == "fullstack" and layout == "monorepo":
+        required: List[str] = []
+        for root in system_target.get("frontend_roots", []) or []:
+            required.extend(_frontend_required_files(str(root)))
+
+        backend_root = str(system_target.get("backend_root", "api"))
+        if system_target.get("backend_framework") == "express":
+            required.extend(_express_backend_required_files(backend_root))
+        else:
+            required.extend(_java_backend_required_files(backend_root))
+        return required
+
     frontend_root = _normalize_required_path(system_target.get("frontend_root", "frontend"))
 
     def fe(path: str) -> str:
@@ -32,10 +79,10 @@ def required_files_for_target(system_target: Dict[str, Any]) -> List[str]:
         ]
 
     if effective_mode == "backend_only":
-        return [
-            "backend/build.gradle",
-            "backend/src/main/resources/application.properties",
-        ]
+        backend_root = str(system_target.get("backend_root", "backend"))
+        if system_target.get("backend_framework") == "express":
+            return _express_backend_required_files(backend_root)
+        return _java_backend_required_files(backend_root)
 
     if system_target.get("system_type") == "fullstack_website":
         return [
@@ -55,7 +102,6 @@ def required_files_for_target(system_target: Dict[str, Any]) -> List[str]:
         "src/App.jsx",
         "src/index.css",
     ]
-
 
 def find_missing_required_files_in_files(
     files: List[Dict[str, Any]],
